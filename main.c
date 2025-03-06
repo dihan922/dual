@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 // Driverlib includes
 #include "rom.h"
@@ -52,6 +53,22 @@
 #define WHITE           0xFFFF
 #define RED             0xF800
 
+// some helpful macros for systick
+
+// the cc3200's fixed clock frequency of 80 MHz
+// note the use of ULL to indicate an unsigned long long constant
+#define SYSCLKFREQ 80000000ULL
+
+// systick reload value set to 40ms period
+// (PERIOD_SEC) * (SYSCLKFREQ) = PERIOD_TICKS
+#define SYSTICK_RELOAD_VAL 3200000UL
+
+#define TICKS_TO_US(ticks) \
+    ((((ticks) / SYSCLKFREQ) * 1000000ULL) + \
+    ((((ticks) % SYSCLKFREQ) * 1000000ULL) / SYSCLKFREQ))\
+
+volatile int systick_cnt = 0;
+volatile int projectile_size = 1;
 
 //*****************************************************************************
 //                 GLOBAL VARIABLES -- Start
@@ -156,10 +173,22 @@ static void GPIOA2IntHandler(void) {
     uint32_t pin_state = MAP_GPIOPinRead(GPIOA2_BASE, 0x40);
     if ((pin_state & 0x40) == 0) // Read falling edge
     {
-//        HWREG(NVIC_ST_CURRENT) = 1;
-//        systick_cnt = 0;
-
         switch_intflag = 1;
+    }
+}
+
+/**
+ * SysTick Interrupt Handler
+ *
+ * Keep track of whether the systick counter wrapped
+ */
+ static void SysTickHandler(void) {
+    uint32_t pin_state = MAP_GPIOPinRead(GPIOA2_BASE, 0x40);
+    if ((pin_state & 0x40) != 0) {
+        systick_cnt++;
+    }
+    if (projectile_size <= 5 && (systick_cnt % 10) == 0) {
+        projectile_size = (systick_cnt / 10) + 1;
     }
 }
 
@@ -196,6 +225,25 @@ BoardInit(void)
     PRCMCC3200MCUInit();
 }
 
+/**
+ * Initializes SysTick Module
+ */
+ static void SysTickInit(void) {
+
+    // configure the reset value for the systick countdown register
+    MAP_SysTickPeriodSet(SYSTICK_RELOAD_VAL);
+
+    // register interrupts on the systick module
+    MAP_SysTickIntRegister(SysTickHandler);
+
+    // enable interrupts on systick
+    // (trigger SysTickHandler when countdown reaches 0)
+    MAP_SysTickIntEnable();
+
+    // enable the systick module itself
+    MAP_SysTickEnable();
+}
+
 //*****************************************************************************
 //
 //! Main function handling the I2C example
@@ -224,6 +272,9 @@ void main(){
     // Enable the SPI module clock
     //
     MAP_PRCMPeripheralClkEnable(PRCM_GSPI,PRCM_RUN_MODE_CLK);
+
+    // Enable SysTick
+    SysTickInit();
     
     //
     // Configuring UART
@@ -264,14 +315,20 @@ void main(){
     MAP_SPIEnable(GSPI_BASE);
 
     // Initialize ship
-    int SHIP_SIZE = 16;
+    int SHIP_SIZE = 24;
     int SCREEN = 128;
+
+    // Initialize projectile
+    int PROJECTILE_SIZE = 5;
+    int8_t PROJECTILE_VELOCITY[2] = { 0, 0 };
+    int8_t PROJECTILE_POSITION[2] = { 0, 0 };
+    bool PROJECTILE_STATE = false;
 
     Adafruit_Init();
     fillScreen(BLACK);
-    fillRoundRect(56, 56, SHIP_SIZE, SHIP_SIZE, 2, RED);
+    fillRect(( (SCREEN / 2) - (SHIP_SIZE / 2) ), ( (SCREEN / 2) - (SHIP_SIZE / 2) ), SHIP_SIZE, SHIP_SIZE, RED);
 
-    int shipPosition[2] = { 56, 56 };
+    int shipPosition[2] = { ( (SCREEN / 2) - (SHIP_SIZE / 2) ), ( (SCREEN / 2) - (SHIP_SIZE / 2) ) };
     int8_t shipVelocity[2] = { 0, 0 };
 
     //
@@ -294,10 +351,36 @@ void main(){
     {
         if (switch_intflag) {
             switch_intflag = 0;
-            Report("Shooting projectile\n\r");
+            Report("Projectile Size: %d\n\r", projectile_size);
+
+            HWREG(NVIC_ST_CURRENT) = 1;
+            systick_cnt = 0;
+            projectile_size = 1;
+            // Set initial position relative to the ship
+            PROJECTILE_POSITION[0] = shipPosition[0] + 10;
+            PROJECTILE_POSITION[1] = shipPosition[1] + 30;
+            PROJECTILE_VELOCITY[0] = 0;
+            PROJECTILE_VELOCITY[1] = 10;
+            PROJECTILE_STATE = true;
+        }
+        if (PROJECTILE_STATE)
+        {
+           // Erase the projectile at its old position
+           fillCircle(PROJECTILE_POSITION[0], PROJECTILE_POSITION[1], PROJECTILE_SIZE, BLACK);
+           // Update projectile position based on its velocity
+           PROJECTILE_POSITION[0] += PROJECTILE_VELOCITY[0];
+           PROJECTILE_POSITION[1] += PROJECTILE_VELOCITY[1];
+
+           // Check if projectile is off the screen bounds (example: off the bottom)
+           if (PROJECTILE_POSITION[1] > SCREEN) {
+               PROJECTILE_STATE = false;  // Deactivate projectile when off-screen
+           } else {
+               // Draw projectile at the new position
+               fillCircle(PROJECTILE_POSITION[0], PROJECTILE_POSITION[1], PROJECTILE_SIZE, WHITE);
+           }
         }
         // Erase ship from the old position
-        fillRoundRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, 2, BLACK);
+        fillRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, BLACK);
 
         // Get acceleration data and scale with max acceleration
         int8_t* accData = ReadAccData();
@@ -331,7 +414,7 @@ void main(){
         }
 
         // Draw ship at the new position
-        fillRoundRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, 2, RED);
+        fillRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, RED);
     }
 
 }
