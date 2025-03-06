@@ -187,8 +187,8 @@ static void GPIOA2IntHandler(void) {
     if ((pin_state & 0x40) != 0) {
         systick_cnt++;
     }
-    if (projectile_size <= 5 && (systick_cnt % 10) == 0) {
-        projectile_size = (systick_cnt / 10) + 1;
+    if (projectile_size <= 12 && (systick_cnt % 10) == 0) {
+        projectile_size = ((systick_cnt / 10) + 2) * 2;
     }
 }
 
@@ -319,7 +319,6 @@ void main(){
     int SCREEN = 128;
 
     // Initialize projectile
-    int PROJECTILE_SIZE = 5;
     int8_t PROJECTILE_VELOCITY[2] = { 0, 0 };
     int8_t PROJECTILE_POSITION[2] = { 0, 0 };
     bool PROJECTILE_STATE = false;
@@ -366,7 +365,7 @@ void main(){
         if (PROJECTILE_STATE)
         {
            // Erase the projectile at its old position
-           fillCircle(PROJECTILE_POSITION[0], PROJECTILE_POSITION[1], PROJECTILE_SIZE, BLACK);
+           fillCircle(PROJECTILE_POSITION[0], PROJECTILE_POSITION[1], projectile_size, BLACK);
            // Update projectile position based on its velocity
            PROJECTILE_POSITION[0] += PROJECTILE_VELOCITY[0];
            PROJECTILE_POSITION[1] += PROJECTILE_VELOCITY[1];
@@ -376,7 +375,7 @@ void main(){
                PROJECTILE_STATE = false;  // Deactivate projectile when off-screen
            } else {
                // Draw projectile at the new position
-               fillCircle(PROJECTILE_POSITION[0], PROJECTILE_POSITION[1], PROJECTILE_SIZE, WHITE);
+               fillCircle(PROJECTILE_POSITION[0], PROJECTILE_POSITION[1], projectile_size, WHITE);
            }
         }
         // Erase ship from the old position
