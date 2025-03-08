@@ -48,10 +48,21 @@
                                    if (SUCCESS != iRetVal) \
                                      return  iRetVal;}
 
+//*****************************************************************************
+//
+// Player mode selector macro
+//
+// MASTER_MODE = 1 : Player is RED
+// MASTER_MODE = 0 : Player is BLUE
+//
+//*****************************************************************************
+#define PLAYER_MODE 1
+
 // Color definitions
 #define BLACK           0x0000
 #define WHITE           0xFFFF
 #define RED             0xF800
+#define BLUE            0x001F
 
 // some helpful macros for systick
 
@@ -68,7 +79,20 @@
     ((((ticks) % SYSCLKFREQ) * 1000000ULL) / SYSCLKFREQ))\
 
 volatile int systick_cnt = 0;
-volatile int projectile_size = 1;
+volatile int projectile_size = 4;
+volatile int projectile_scale = 1;
+
+// Initialize projectile
+#define MAX_PROJECTILES 6
+
+typedef struct {
+    int  x_position;
+    int  y_position;
+    int  x_velocity;
+    int  y_velocity;
+    bool state;
+    int  size;
+} Projectile;
 
 //*****************************************************************************
 //                 GLOBAL VARIABLES -- Start
@@ -87,7 +111,7 @@ extern uVectorEntry __vector_table;
 
 
 //****************************************************************************
-//                      LOCAL FUNCTION DEFINITIONS                          
+//                      LOCAL FUNCTION DEFINITIONS
 //****************************************************************************
 
 //*****************************************************************************
@@ -98,7 +122,7 @@ extern uVectorEntry __vector_table;
 //! \param  ucLen is the length of the data to be displayed
 //!
 //! \return none
-//! 
+//!
 //*****************************************************************************
 //
 //! Application startup display on UART
@@ -140,7 +164,7 @@ ReadAccData()
     // Stop bit implicitly assumed to be 0.
     //
     RET_IF_ERR(I2C_IF_Write(24,&ucRegOffset,1,0));
-    
+
     //
     // Read 4 bytes of successive data
     //
@@ -187,8 +211,9 @@ static void GPIOA2IntHandler(void) {
     if ((pin_state & 0x40) != 0) {
         systick_cnt++;
     }
-    if (projectile_size <= 12 && (systick_cnt % 10) == 0) {
-        projectile_size = ((systick_cnt / 10) + 2) * 2;
+    if (projectile_scale <= 5 && (systick_cnt % 10) == 0) {
+        projectile_scale = (systick_cnt / 10) + 1;
+        projectile_size = projectile_scale * 2;
     }
 }
 
@@ -257,7 +282,7 @@ void main(){
     int iRetVal;
     char acCmdStore[512];
     unsigned long ulStatus;
-    
+
     //
     // Initialize board configurations
     //
@@ -275,12 +300,12 @@ void main(){
 
     // Enable SysTick
     SysTickInit();
-    
+
     //
     // Configuring UART
     //
     InitTerm();
-    
+
     //
     // I2C Init
     //
@@ -316,12 +341,11 @@ void main(){
 
     // Initialize ship
     int SHIP_SIZE = 24;
+    int PLAYER_COLOR = (PLAYER_MODE) ? RED : BLUE;
     int SCREEN = 128;
 
-    // Initialize projectile
-    int8_t PROJECTILE_VELOCITY[2] = { 0, 0 };
-    int8_t PROJECTILE_POSITION[2] = { 0, 0 };
-    bool PROJECTILE_STATE = false;
+    // Create an array to hold up to MAX_PROJECTILES projectiles.
+    Projectile projectiles[MAX_PROJECTILES];
 
     Adafruit_Init();
     fillScreen(BLACK);
@@ -348,36 +372,9 @@ void main(){
 
     while (FOREVER)
     {
-        if (switch_intflag) {
-            switch_intflag = 0;
-            Report("Projectile Size: %d\n\r", projectile_size);
-
-            HWREG(NVIC_ST_CURRENT) = 1;
-            systick_cnt = 0;
-            projectile_size = 1;
-            // Set initial position relative to the ship
-            PROJECTILE_POSITION[0] = shipPosition[0] + 10;
-            PROJECTILE_POSITION[1] = shipPosition[1] + 30;
-            PROJECTILE_VELOCITY[0] = 0;
-            PROJECTILE_VELOCITY[1] = 10;
-            PROJECTILE_STATE = true;
-        }
-        if (PROJECTILE_STATE)
-        {
-           // Erase the projectile at its old position
-           fillCircle(PROJECTILE_POSITION[0], PROJECTILE_POSITION[1], projectile_size, BLACK);
-           // Update projectile position based on its velocity
-           PROJECTILE_POSITION[0] += PROJECTILE_VELOCITY[0];
-           PROJECTILE_POSITION[1] += PROJECTILE_VELOCITY[1];
-
-           // Check if projectile is off the screen bounds (example: off the bottom)
-           if (PROJECTILE_POSITION[1] > SCREEN) {
-               PROJECTILE_STATE = false;  // Deactivate projectile when off-screen
-           } else {
-               // Draw projectile at the new position
-               fillCircle(PROJECTILE_POSITION[0], PROJECTILE_POSITION[1], projectile_size, WHITE);
-           }
-        }
+        // -------------------------
+        // Update Ship Position
+        // -------------------------
         // Erase ship from the old position
         fillRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, BLACK);
 
@@ -385,7 +382,7 @@ void main(){
         int8_t* accData = ReadAccData();
         int8_t xAcc = (int8_t)(((double)accData[0] / 64) * 13);
         int8_t yAcc = (int8_t)(((double)accData[1] / 64) * 13);
-//        Report("X Acc: %d, Y Acc: %d\n\r", accData[0], accData[1]);
+        // Report("X Acc: %d, Y Acc: %d\n\r", accData[0], accData[1]);
 
         // Update velocity based on acceleration and apply friction
         shipVelocity[0] = (shipVelocity[0] + xAcc) * 0.99;
@@ -413,7 +410,77 @@ void main(){
         }
 
         // Draw ship at the new position
-        fillRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, RED);
+        fillRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, PLAYER_COLOR);
+
+
+        // -------------------------
+        // Handle New Projectile
+        // -------------------------
+        if (switch_intflag)
+        {
+            switch_intflag = 0;
+            Report("Counter: %d\n\r", systick_cnt);
+            Report("Projectile Size: %d\n\r", projectile_size);
+
+            HWREG(NVIC_ST_CURRENT) = 1;
+            systick_cnt = 0;
+
+            // Look for an available slot in the projectile array.
+            int i;
+            for (i = 0; i < MAX_PROJECTILES; i++)
+            {
+                if (!projectiles[i].state)
+                {
+                    // Found an inactive slot
+                    projectiles[i].state = true;
+
+                    // Set initial position relative to the ship
+                    projectiles[i].x_position = shipPosition[0] + (SHIP_SIZE / 2);
+                    projectiles[i].y_position = shipPosition[1] + SHIP_SIZE + projectile_size;
+                    projectiles[i].x_velocity = xAcc;
+                    projectiles[i].y_velocity = 10 + (projectile_scale * 4);
+                    projectiles[i].size = projectile_size;
+                    projectile_scale = 1;
+                    break;  // Only fire one projectile per button press
+                }
+            }
+        }
+
+
+        // -------------------------
+        // Update Projectiles
+        // -------------------------
+        int j;
+        for (j = 0; j < MAX_PROJECTILES; j++)
+        {
+            if (projectiles[j].state)
+            {
+                // Erase the projectile at its old position
+                fillCircle(projectiles[j].x_position,
+                           projectiles[j].y_position,
+                           projectiles[j].size,
+                           BLACK);
+
+                // Update projectile position based on its velocity
+                projectiles[j].x_position += projectiles[j].x_velocity;
+                projectiles[j].y_position += projectiles[j].y_velocity;
+
+                // Check if projectile is off-screen
+                if (projectiles[j].x_position < 0 || projectiles[j].x_position >= SCREEN ||
+                    projectiles[j].y_position < 0 || projectiles[j].y_position >= SCREEN)
+                {
+                    projectiles[j].state = false;  // Deactivate projectile
+                }
+                else
+                {
+                    // Draw projectile at its new position
+                    fillCircle(projectiles[j].x_position,
+                               projectiles[j].y_position,
+                               projectiles[j].size,
+                               PLAYER_COLOR);
+                }
+            }
+        }
     }
 
 }
