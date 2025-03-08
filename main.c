@@ -78,9 +78,11 @@
     ((((ticks) / SYSCLKFREQ) * 1000000ULL) + \
     ((((ticks) % SYSCLKFREQ) * 1000000ULL) / SYSCLKFREQ))\
 
+volatile int timer = 0;
 volatile int systick_cnt = 0;
 volatile int projectile_size = 4;
 volatile int projectile_scale = 1;
+volatile int ammo_cnt = 6;
 
 // Initialize projectile
 #define MAX_PROJECTILES 6
@@ -195,8 +197,7 @@ static void GPIOA2IntHandler(void) {
     MAP_GPIOIntClear(GPIOA2_BASE, ulStatus);        // clear interrupts on GPIOA2
 
     uint32_t pin_state = MAP_GPIOPinRead(GPIOA2_BASE, 0x40);
-    if ((pin_state & 0x40) == 0) // Read falling edge
-    {
+    if ((pin_state & 0x40) == 0) { // Read falling edge
         switch_intflag = 1;
     }
 }
@@ -210,9 +211,13 @@ static void GPIOA2IntHandler(void) {
     uint32_t pin_state = MAP_GPIOPinRead(GPIOA2_BASE, 0x40);
     if ((pin_state & 0x40) != 0) {
         systick_cnt++;
+        if (ammo_cnt >= 1 && (timer % 15) == 0) {
+            ammo_cnt--;
+        }
     }
-    if (projectile_scale <= 5 && (systick_cnt % 10) == 0) {
-        projectile_scale = (systick_cnt / 10) + 1;
+    timer++;
+    if (projectile_scale <= 5 && (systick_cnt % 15) == 0) {
+        projectile_scale = (systick_cnt / 15) + 1;
         projectile_size = projectile_scale * 2;
     }
 }
@@ -349,7 +354,7 @@ void main(){
 
     Adafruit_Init();
     fillScreen(BLACK);
-    fillRect(( (SCREEN / 2) - (SHIP_SIZE / 2) ), ( (SCREEN / 2) - (SHIP_SIZE / 2) ), SHIP_SIZE, SHIP_SIZE, RED);
+    fillRect( ((SCREEN / 2) - (SHIP_SIZE / 2)), ((SCREEN / 2) - (SHIP_SIZE / 2)), SHIP_SIZE, SHIP_SIZE, RED );
 
     int shipPosition[2] = { ( (SCREEN / 2) - (SHIP_SIZE / 2) ), ( (SCREEN / 2) - (SHIP_SIZE / 2) ) };
     int8_t shipVelocity[2] = { 0, 0 };
@@ -372,6 +377,12 @@ void main(){
 
     while (FOREVER)
     {
+        if (timer > 35) {
+            if (ammo_cnt <= 5) {
+                ammo_cnt++;
+            }
+            timer = 0;
+        }
         // -------------------------
         // Update Ship Position
         // -------------------------
@@ -411,6 +422,8 @@ void main(){
 
         // Draw ship at the new position
         fillRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, PLAYER_COLOR);
+        Report("Ammo: %d\n\r", ammo_cnt);
+        Report("Projectile Scale: %d\n\r", projectile_scale);
 
 
         // -------------------------
@@ -419,11 +432,15 @@ void main(){
         if (switch_intflag)
         {
             switch_intflag = 0;
-            Report("Counter: %d\n\r", systick_cnt);
-            Report("Projectile Size: %d\n\r", projectile_size);
+//            Report("Counter: %d\n\r", systick_cnt);
+//            Report("Projectile Size: %d\n\r", projectile_size);
 
             HWREG(NVIC_ST_CURRENT) = 1;
             systick_cnt = 0;
+
+            if (ammo_cnt >= 1) {
+                ammo_cnt--;
+            }
 
             // Look for an available slot in the projectile array.
             int i;
@@ -444,6 +461,7 @@ void main(){
                     break;  // Only fire one projectile per button press
                 }
             }
+
         }
 
 
@@ -466,8 +484,8 @@ void main(){
                 projectiles[j].y_position += projectiles[j].y_velocity;
 
                 // Check if projectile is off-screen
-                if (projectiles[j].x_position < 0 || projectiles[j].x_position >= (SCREEN - projectiles[j].size - 1) ||
-                    projectiles[j].y_position < 0 || projectiles[j].y_position >= (SCREEN - projectiles[j].size - 1))
+                if (projectiles[j].x_position < 0 || projectiles[j].x_position > (SCREEN - projectiles[j].size - 1) ||
+                    projectiles[j].y_position < 0 || projectiles[j].y_position > (SCREEN - projectiles[j].size - 1))
                 {
                     projectiles[j].state = false;  // Deactivate projectile
                 }
