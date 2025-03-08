@@ -88,12 +88,12 @@ volatile int ammo_cnt = 6;
 #define MAX_PROJECTILES 6
 
 typedef struct {
-    int  x_position;
-    int  y_position;
-    int  x_velocity;
-    int  y_velocity;
-    bool state;
-    int  size;
+    volatile int  x_position;
+    volatile int  y_position;
+    volatile int  x_velocity;
+    volatile int  y_velocity;
+    volatile bool state;
+    volatile int  size;
 } Projectile;
 
 //*****************************************************************************
@@ -411,6 +411,17 @@ void main(){
     // Enable switch interrupt
     MAP_GPIOIntEnable(GPIOA2_BASE, 0x40);
     switch_intflag = 0;
+
+    int i;
+    for (i = 0; i < MAX_PROJECTILES; i++)
+    {
+        projectiles[i].state = false;
+        projectiles[i].x_position = 0;
+        projectiles[i].y_position = 0;
+        projectiles[i].x_velocity = 0;
+        projectiles[i].y_velocity = 0;
+        projectiles[i].size = 0;
+    }
 
     while (FOREVER)
     {
