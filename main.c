@@ -35,8 +35,8 @@
 //*****************************************************************************
 //                      MACRO DEFINITIONS
 //*****************************************************************************
-#define APPLICATION_VERSION     "1.4.0"
-#define APP_NAME                "Sliding Ball"
+#define APPLICATION_VERSION     "SQ25"
+#define APP_NAME                "DUAL"
 #define UART_PRINT              Report
 #define FOREVER                 1
 #define CONSOLE                 UARTA0_BASE
@@ -80,7 +80,7 @@
 
 volatile int timer = 0;
 volatile int systick_cnt = 0;
-volatile int projectile_size = 4;
+volatile int projectile_size = 2;
 volatile int projectile_scale = 1;
 volatile int ammo_cnt = 6;
 
@@ -207,19 +207,38 @@ static void GPIOA2IntHandler(void) {
  *
  * Keep track of whether the systick counter wrapped
  */
- static void SysTickHandler(void) {
+static void SysTickHandler(void) {
     uint32_t pin_state = MAP_GPIOPinRead(GPIOA2_BASE, 0x40);
-    if ((pin_state & 0x40) != 0) {
+    static bool charging = false;
+    static int starting_ammo = 6;  // Stores ammo count when button is first pressed
+
+    if ((pin_state & 0x40) != 0) {  // Button is held down
         systick_cnt++;
-        if (ammo_cnt >= 1 && (timer % 15) == 0) {
-            ammo_cnt--;
+
+        if (!charging) {
+            // Reset projectile_scale only when first pressed
+            projectile_scale = 1;
+            starting_ammo = ammo_cnt;  // Capture ammo count at start
+            charging = true;
         }
-    }
-    timer++;
-    if (projectile_scale <= 5 && (systick_cnt % 15) == 0) {
-        projectile_scale = (systick_cnt / 15) + 1;
+
+        // Scale projectile size based on ammo spent
+        if (ammo_cnt > 0 && (systick_cnt % 15) == 0) {
+            ammo_cnt--;
+
+            // Ensure projectile_scale correctly follows the ammo depletion
+            projectile_scale = (starting_ammo - ammo_cnt);
+            if (projectile_scale > 6) {
+                projectile_scale = 6;
+            }
+        }
         projectile_size = projectile_scale * 2;
     }
+    else {  // Button is released
+        charging = false;
+    }
+
+    timer++;
 }
 
 //*****************************************************************************
@@ -378,11 +397,12 @@ void main(){
     while (FOREVER)
     {
         if (timer > 35) {
-            if (ammo_cnt <= 5) {
+            if (ammo_cnt < 6 && (MAP_GPIOPinRead(GPIOA2_BASE, 0x40) & 0x40) == 0) {
                 ammo_cnt++;
             }
             timer = 0;
         }
+
         // -------------------------
         // Update Ship Position
         // -------------------------
@@ -432,36 +452,32 @@ void main(){
         if (switch_intflag)
         {
             switch_intflag = 0;
-//            Report("Counter: %d\n\r", systick_cnt);
-//            Report("Projectile Size: %d\n\r", projectile_size);
-
-            HWREG(NVIC_ST_CURRENT) = 1;
+            HWREG(NVIC_ST_CURRENT) = 1;  // Reset SysTick counter
             systick_cnt = 0;
 
-            if (ammo_cnt >= 1) {
-                ammo_cnt--;
-            }
-
-            // Look for an available slot in the projectile array.
-            int i;
-            for (i = 0; i < MAX_PROJECTILES; i++)
-            {
-                if (!projectiles[i].state)
+            // Fire projectile only if ammo is available
+            if (ammo_cnt > 0 || projectile_scale > 1) {
+                int i;
+                for (i = 0; i < MAX_PROJECTILES; i++)
                 {
-                    // Found an inactive slot
-                    projectiles[i].state = true;
+                    if (!projectiles[i].state)  // Find an inactive slot
+                    {
+                        projectiles[i].state = true;
+                        projectiles[i].x_position = shipPosition[0] + (SHIP_SIZE / 2);
+                        projectiles[i].y_position = shipPosition[1] + SHIP_SIZE + projectile_size;
+                        projectiles[i].x_velocity = xAcc;
+                        projectiles[i].y_velocity = 10 + (projectile_scale * 4);
+                        projectiles[i].size = projectile_size;
 
-                    // Set initial position relative to the ship
-                    projectiles[i].x_position = shipPosition[0] + (SHIP_SIZE / 2);
-                    projectiles[i].y_position = shipPosition[1] + SHIP_SIZE + projectile_size;
-                    projectiles[i].x_velocity = xAcc;
-                    projectiles[i].y_velocity = 10 + (projectile_scale * 4);
-                    projectiles[i].size = projectile_size;
-                    projectile_scale = 1;
-                    break;  // Only fire one projectile per button press
+                        // Reset scale to minimum after firing
+                        projectile_scale = 1;
+                        if (ammo_cnt > 0) {
+                            ammo_cnt--;   // Decrease ammo immediately on shot
+                        }
+                        break;
+                    }
                 }
             }
-
         }
 
 
