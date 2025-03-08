@@ -466,8 +466,8 @@ void main(){
                 projectiles[j].y_position += projectiles[j].y_velocity;
 
                 // Check if projectile is off-screen
-                if (projectiles[j].x_position < 0 || projectiles[j].x_position >= SCREEN ||
-                    projectiles[j].y_position < 0 || projectiles[j].y_position >= SCREEN)
+                if (projectiles[j].x_position < 0 || projectiles[j].x_position >= (SCREEN - projectiles[j].size - 1) ||
+                    projectiles[j].y_position < 0 || projectiles[j].y_position >= (SCREEN - projectiles[j].size - 1))
                 {
                     projectiles[j].state = false;  // Deactivate projectile
                 }
