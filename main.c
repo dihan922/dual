@@ -241,6 +241,24 @@ static void SysTickHandler(void) {
     timer++;
 }
 
+
+void drawShipWithAmmo(int x, int y, int size, int color, int ammo) {
+    int ammo_size = size / 6;
+    int padding = 3;  // Space between ammo squares
+
+    // Draw the ship
+    fillRect(x, y, size, size, color);
+
+    // Draw ammo squares based on ammo count
+    if (ammo >= 1) fillRect(x + size + padding, y + size - ammo_size, ammo_size, ammo_size, color);
+    if (ammo >= 2) fillRect(x - ammo_size - padding, y + size - ammo_size, ammo_size, ammo_size, color);
+    if (ammo >= 3) fillRect(x + size + padding, y + size - (2 * ammo_size) - padding, ammo_size, ammo_size, color);
+    if (ammo >= 4) fillRect(x - ammo_size - padding, y + size - (2 * ammo_size) - padding, ammo_size, ammo_size, color);
+    if (ammo >= 5) fillRect(x + size + padding, y + size - (3 * ammo_size) - (2 * padding), ammo_size, ammo_size, color);
+    if (ammo >= 6) fillRect(x - ammo_size - padding, y + size - (3 * ammo_size) - (2 * padding), ammo_size, ammo_size, color);
+}
+
+
 //*****************************************************************************
 //
 //! Board Initialization & Configuration
@@ -373,7 +391,7 @@ void main(){
 
     Adafruit_Init();
     fillScreen(BLACK);
-    fillRect( ((SCREEN / 2) - (SHIP_SIZE / 2)), ((SCREEN / 2) - (SHIP_SIZE / 2)), SHIP_SIZE, SHIP_SIZE, RED );
+    drawShipWithAmmo( ((SCREEN / 2) - (SHIP_SIZE / 2)), ((SCREEN / 2) - (SHIP_SIZE / 2)), SHIP_SIZE, PLAYER_COLOR, 6);
 
     int shipPosition[2] = { ( (SCREEN / 2) - (SHIP_SIZE / 2) ), ( (SCREEN / 2) - (SHIP_SIZE / 2) ) };
     int8_t shipVelocity[2] = { 0, 0 };
@@ -396,7 +414,7 @@ void main(){
 
     while (FOREVER)
     {
-        if (timer > 35) {
+        if (timer > 25) {
             if (ammo_cnt < 6 && (MAP_GPIOPinRead(GPIOA2_BASE, 0x40) & 0x40) == 0) {
                 ammo_cnt++;
             }
@@ -407,7 +425,7 @@ void main(){
         // Update Ship Position
         // -------------------------
         // Erase ship from the old position
-        fillRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, BLACK);
+        drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, BLACK, 6);
 
         // Get acceleration data and scale with max acceleration
         int8_t* accData = ReadAccData();
@@ -441,7 +459,7 @@ void main(){
         }
 
         // Draw ship at the new position
-        fillRect(shipPosition[0], shipPosition[1], SHIP_SIZE, SHIP_SIZE, PLAYER_COLOR);
+        drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, PLAYER_COLOR, ammo_cnt);
         Report("Ammo: %d\n\r", ammo_cnt);
         Report("Projectile Scale: %d\n\r", projectile_scale);
 
