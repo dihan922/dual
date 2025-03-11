@@ -58,7 +58,6 @@ void PinMuxConfig(void)
     // Set unused pins to PIN_MODE_0 with the exception of JTAG pins 16,17,19,20
     //
     PinModeSet(PIN_03, PIN_MODE_0);
-    PinModeSet(PIN_04, PIN_MODE_0);
     PinModeSet(PIN_15, PIN_MODE_0);
     PinModeSet(PIN_21, PIN_MODE_0);
     PinModeSet(PIN_52, PIN_MODE_0);
@@ -72,12 +71,19 @@ void PinMuxConfig(void)
     // Enable Peripheral Clocks 
     //
     PRCMPeripheralClkEnable(PRCM_GPIOA0, PRCM_RUN_MODE_CLK);
+    PRCMPeripheralClkEnable(PRCM_GPIOA1, PRCM_RUN_MODE_CLK);
     PRCMPeripheralClkEnable(PRCM_GPIOA2, PRCM_RUN_MODE_CLK);
     PRCMPeripheralClkEnable(PRCM_GPIOA3, PRCM_RUN_MODE_CLK);
     PRCMPeripheralClkEnable(PRCM_I2CA0, PRCM_RUN_MODE_CLK);
     PRCMPeripheralClkEnable(PRCM_GSPI, PRCM_RUN_MODE_CLK);
     PRCMPeripheralClkEnable(PRCM_UARTA1, PRCM_RUN_MODE_CLK);
     PRCMPeripheralClkEnable(PRCM_UARTA0, PRCM_RUN_MODE_CLK);
+
+    //
+    // Configure PIN_04 for GPIO Input
+    //
+    PinTypeGPIO(PIN_04, PIN_MODE_0, false);
+    GPIODirModeSet(GPIOA1_BASE, 0x20, GPIO_DIR_MODE_IN);
 
     //
     // Configure PIN_61 for GPIO Input

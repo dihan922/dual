@@ -4,7 +4,7 @@
 
 SHELL = cmd.exe
 
-CG_TOOL_ROOT := C:/Users/dihan/ti/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS
+CG_TOOL_ROOT := C:/ti/ccs1280/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS
 
 GEN_OPTS__FLAG := 
 GEN_CMDS__FLAG := 
@@ -129,10 +129,10 @@ endif
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXE_OUTPUTS += \
-lab-final.out \
+lab-final.out 
 
 EXE_OUTPUTS__QUOTED += \
-"lab-final.out" \
+"lab-final.out" 
 
 
 # All Target
@@ -143,7 +143,7 @@ all: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
 lab-final.out: $(OBJS) $(CMD_SRCS) $(GEN_CMDS)
 	@echo 'Building target: "$@"'
 	@echo 'Invoking: ARM Linker'
-	"C:/Users/dihan/ti/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armcl" -mv7M4 --code_state=16 -me -Ooff --define=ccs --define=cc3200 --define=NON_NETWORK -g --diag_warning=225 --diag_wrap=off --display_error_number --abi=eabi -z -m"lab-final.map" --heap_size=0x800 --stack_size=0x800 -i"C:/Users/dihan/ti/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include" -i"C:/Users/dihan/ti/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/lib" --reread_libs --diag_wrap=off --display_error_number --warn_sections --xml_link_info="lab-final_linkInfo.xml" --rom_model -o "lab-final.out" $(ORDERED_OBJS)
+	"C:/ti/ccs1280/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armcl" -mv7M4 --code_state=16 -me -Ooff --define=ccs --define=cc3200 --define=NON_NETWORK -g --diag_warning=225 --diag_wrap=off --display_error_number --abi=eabi -z -m"lab-final.map" --heap_size=0x800 --stack_size=0x800 -i"C:/ti/ccs1280/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/include" -i"C:/ti/ccs1280/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/lib" --reread_libs --diag_wrap=off --display_error_number --warn_sections --xml_link_info="lab-final_linkInfo.xml" --rom_model -o "lab-final.out" $(ORDERED_OBJS)
 	@echo 'Finished building target: "$@"'
 	@echo ' '
 	@$(MAKE) --no-print-directory post-build
@@ -157,7 +157,7 @@ clean:
 	-@echo ' '
 
 post-build:
-	-C:/Users/dihan/ti/ccs/utils/tiobj2bin/tiobj2bin lab-final.out lab-final.bin C:/Users/dihan/ti/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armofd C:/Users/dihan/ti/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armhex C:/Users/dihan/ti/ccs/utils/tiobj2bin/mkhex4bin
+	-C:/ti/ccs1280/ccs/utils/tiobj2bin/tiobj2bin lab-final.out lab-final.bin C:/ti/ccs1280/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armofd C:/ti/ccs1280/ccs/tools/compiler/ti-cgt-arm_20.2.7.LTS/bin/armhex C:/ti/ccs1280/ccs/utils/tiobj2bin/mkhex4bin
 	-@echo ' '
 
 .PHONY: all clean dependents
