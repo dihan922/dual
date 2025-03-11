@@ -80,16 +80,16 @@ void PinMuxConfig(void)
     PRCMPeripheralClkEnable(PRCM_UARTA0, PRCM_RUN_MODE_CLK);
 
     //
-    // Configure PIN_58 for GPIO Input
+    // Configure PIN_61 for GPIO Input
     //
-    PinTypeGPIO(PIN_58, PIN_MODE_0, false);
-    GPIODirModeSet(GPIOA0_BASE, 0x8, GPIO_DIR_MODE_IN);
+    PinTypeGPIO(PIN_61, PIN_MODE_0, false);
+    GPIODirModeSet(GPIOA0_BASE, 0x40, GPIO_DIR_MODE_IN);
 
     //
-    // Configure PIN_08 for GPIO Output
+    // Configure PIN_62 for GPIO Output
     //
-    PinTypeGPIO(PIN_08, PIN_MODE_0, false);
-    GPIODirModeSet(GPIOA2_BASE, 0x2, GPIO_DIR_MODE_OUT);
+    PinTypeGPIO(PIN_62, PIN_MODE_0, false);
+    GPIODirModeSet(GPIOA0_BASE, 0x80, GPIO_DIR_MODE_OUT);
 
     //
     // Configure PIN_18 for GPIO Output
@@ -134,14 +134,14 @@ void PinMuxConfig(void)
     PinTypeSPI(PIN_07, PIN_MODE_7);
 
     //
-    // Configure PIN_61 for UART1 UART1_TX
+    // Configure PIN_58 for UART1 UART1_TX
     //
-    PinTypeUART(PIN_61, PIN_MODE_7);
+    PinTypeUART(PIN_58, PIN_MODE_6);
 
     //
-    // Configure PIN_59 for UART1 UART1_RX
+    // Configure PIN_08 for UART1 UART1_RX
     //
-    PinTypeUART(PIN_59, PIN_MODE_7);
+    PinTypeUART(PIN_08, PIN_MODE_5);
 
     //
     // Configure PIN_55 for UART0 UART0_TX

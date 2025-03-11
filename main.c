@@ -40,6 +40,7 @@
 #define UART_PRINT              Report
 #define FOREVER                 1
 #define CONSOLE                 UARTA0_BASE
+#define UART1                   UARTA1_BASE
 #define FAILURE                 -1
 #define SUCCESS                 0
 #define SPI_IF_BIT_RATE         100000
@@ -190,14 +191,14 @@ ReadAccData()
 //! \return none
 //
 //****************************************************************************
-static void GPIOA2IntHandler(void) {
+static void GPIOA1IntHandler(void) {
     unsigned long ulStatus;
 
-    ulStatus = MAP_GPIOIntStatus (GPIOA2_BASE, true);
-    MAP_GPIOIntClear(GPIOA2_BASE, ulStatus);        // clear interrupts on GPIOA2
+    ulStatus = MAP_GPIOIntStatus(GPIOA1_BASE, true);
+    MAP_GPIOIntClear(GPIOA1_BASE, ulStatus);        // clear interrupts on GPIOA1
 
-    uint32_t pin_state = MAP_GPIOPinRead(GPIOA2_BASE, 0x40);
-    if ((pin_state & 0x40) == 0) { // Read falling edge
+    uint32_t pin_state = MAP_GPIOPinRead(GPIOA1_BASE, 0x20);
+    if ((pin_state & 0x20) == 0) { // Read falling edge
         switch_intflag = 1;
     }
 }
@@ -208,11 +209,11 @@ static void GPIOA2IntHandler(void) {
  * Keep track of whether the systick counter wrapped
  */
 static void SysTickHandler(void) {
-    uint32_t pin_state = MAP_GPIOPinRead(GPIOA2_BASE, 0x40);
+    uint32_t pin_state = MAP_GPIOPinRead(GPIOA1_BASE, 0x20);
     static bool charging = false;
     static int starting_ammo = 6;  // Stores ammo count when button is first pressed
 
-    if ((pin_state & 0x40) != 0) {  // Button is held down
+    if ((pin_state & 0x20) != 0) {  // Button is held down
         systick_cnt++;
 
         if (!charging) {
@@ -244,7 +245,7 @@ static void SysTickHandler(void) {
 
 void drawShipWithAmmo(int x, int y, int size, int color, int ammo) {
     int ammo_size = size / 6;
-    int padding = 3;  // Space between ammo squares
+    int padding = size / 8;  // Space between ammo squares
 
     // Draw the ship
     fillRect(x, y, size, size, color);
@@ -256,6 +257,70 @@ void drawShipWithAmmo(int x, int y, int size, int color, int ammo) {
     if (ammo >= 4) fillRect(x - ammo_size - padding, y + size - (2 * ammo_size) - padding, ammo_size, ammo_size, color);
     if (ammo >= 5) fillRect(x + size + padding, y + size - (3 * ammo_size) - (2 * padding), ammo_size, ammo_size, color);
     if (ammo >= 6) fillRect(x - ammo_size - padding, y + size - (3 * ammo_size) - (2 * padding), ammo_size, ammo_size, color);
+}
+
+
+void InitUART1(void)
+{
+    // Configure UART1 for 115200 baud, 8 data bits, 1 stop bit, no parity
+    MAP_UARTConfigSetExpClk(UART1,
+                            MAP_PRCMPeripheralClockGet(PRCM_UARTA1),
+                            115200,
+                            (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
+    MAP_UARTFIFOEnable(UART1);
+    MAP_UARTEnable(UART1);
+}
+
+void UART1SendProjectile(Projectile *proj)
+{
+    char buffer[11];
+
+    // Pack the projectile data into the buffer
+    buffer[0] = (proj->x_position >> 8) & 0xFF;  // High byte of x_position
+    buffer[1] = proj->x_position & 0xFF;         // Low byte of x_position
+
+    buffer[2]  = (proj->x_velocity >> 24) & 0xFF;
+    buffer[3]  = (proj->x_velocity >> 16) & 0xFF;
+    buffer[4]  = (proj->x_velocity >> 8) & 0xFF;
+    buffer[5]  = proj->x_velocity & 0xFF;
+
+    buffer[6]  = (proj->y_velocity >> 24) & 0xFF;
+    buffer[7]  = (proj->y_velocity >> 16) & 0xFF;
+    buffer[8]  = (proj->y_velocity >> 8) & 0xFF;
+    buffer[9]  = proj->y_velocity & 0xFF;
+
+    buffer[10] = proj->size;  // Projectile size (1 byte)
+
+    // Send each byte through UART1
+    int i;
+    for (i = 0; i < 11; i++)
+    {
+        while (MAP_UARTBusy(UART1)); // Wait until UART is ready
+        MAP_UARTCharPut(UART1, buffer[i]);
+    }
+}
+
+void UART1ReceiveProjectile(Projectile *proj)
+{
+    char buffer[11];  // Buffer to store received data
+    int index = 0;
+
+    // Wait until we have received exactly 12 bytes
+    while (index < 11)
+    {
+        if (MAP_UARTCharsAvail(UART1))
+        {
+            buffer[index++] = MAP_UARTCharGetNonBlocking(UART1);
+        }
+    }
+
+    // Reconstruct projectile data from received bytes
+    proj->x_position = 128 - ((buffer[0] << 8) | buffer[1]);
+    proj->y_position = 128 - buffer[10];
+    proj->x_velocity = ((buffer[2] << 24) | (buffer[3] << 16) | (buffer[4] << 8) | buffer[5]) * -1;
+    proj->y_velocity = ((buffer[6] << 24) | (buffer[7] << 16) | (buffer[8] << 8) | buffer[9]) * -1;
+    proj->size = buffer[10];
+    proj->state = true;
 }
 
 
@@ -329,11 +394,13 @@ void main(){
     // Initialize board configurations
     //
     BoardInit();
-    
+
     //
     // Configure the pinmux settings for the peripherals exercised
     //
     PinMuxConfig();
+
+    InitUART1();
 
     //
     // Enable the SPI module clock
@@ -347,6 +414,8 @@ void main(){
     // Configuring UART
     //
     InitTerm();
+
+
 
     //
     // I2C Init
@@ -388,6 +457,7 @@ void main(){
 
     // Create an array to hold up to MAX_PROJECTILES projectiles.
     Projectile projectiles[MAX_PROJECTILES];
+    Projectile incoming_proj[MAX_PROJECTILES];
 
     Adafruit_Init();
     fillScreen(BLACK);
@@ -399,17 +469,17 @@ void main(){
     //
     // Register the interrupt handler
     //
-    MAP_GPIOIntRegister(GPIOA2_BASE, GPIOA2IntHandler);
+    MAP_GPIOIntRegister(GPIOA1_BASE, GPIOA1IntHandler);
 
     //
     // Configure falling edge interrupt on switch
     //
-    MAP_GPIOIntTypeSet(GPIOA2_BASE, 0x40, GPIO_FALLING_EDGE);
-    ulStatus = MAP_GPIOIntStatus(GPIOA2_BASE, false);
-    MAP_GPIOIntClear(GPIOA2_BASE, ulStatus);
+    MAP_GPIOIntTypeSet(GPIOA1_BASE, 0x20, GPIO_FALLING_EDGE);
+    ulStatus = MAP_GPIOIntStatus(GPIOA1_BASE, false);
+    MAP_GPIOIntClear(GPIOA1_BASE, ulStatus);
 
     // Enable switch interrupt
-    MAP_GPIOIntEnable(GPIOA2_BASE, 0x40);
+    MAP_GPIOIntEnable(GPIOA1_BASE, 0x20);
     switch_intflag = 0;
 
     int i;
@@ -421,15 +491,40 @@ void main(){
         projectiles[i].x_velocity = 0;
         projectiles[i].y_velocity = 0;
         projectiles[i].size = 0;
+
+        incoming_proj[i].state = false;
+        incoming_proj[i].x_position = 0;
+        incoming_proj[i].y_position = 0;
+        incoming_proj[i].x_velocity = 0;
+        incoming_proj[i].y_velocity = 0;
+        incoming_proj[i].size = 0;
     }
+
 
     while (FOREVER)
     {
         if (timer > 25) {
-            if (ammo_cnt < 6 && (MAP_GPIOPinRead(GPIOA2_BASE, 0x40) & 0x40) == 0) {
+            if (ammo_cnt < 6 && (MAP_GPIOPinRead(GPIOA1_BASE, 0x20) & 0x20) == 0) {
                 ammo_cnt++;
             }
             timer = 0;
+        }
+
+        if (MAP_UARTCharsAvail(UART1))
+        {
+            Projectile new_proj;
+            UART1ReceiveProjectile(&new_proj);
+
+            // Add the received projectile to an available slot
+            int i;
+            for (i = 0; i < MAX_PROJECTILES; i++)
+            {
+                if (!incoming_proj[i].state)  // Find an inactive slot
+                {
+                    incoming_proj[i] = new_proj;
+                    break;
+                }
+            }
         }
 
         // -------------------------
@@ -442,7 +537,7 @@ void main(){
         int8_t* accData = ReadAccData();
         int8_t xAcc = (int8_t)(((double)accData[0] / 64) * 13);
         int8_t yAcc = (int8_t)(((double)accData[1] / 64) * 13);
-        // Report("X Acc: %d, Y Acc: %d\n\r", accData[0], accData[1]);
+//        Report("X Acc: %d, Y Acc: %d\n\r", accData[0], accData[1]);
 
         // Update velocity based on acceleration and apply friction
         shipVelocity[0] = (shipVelocity[0] + xAcc) * 0.99;
@@ -530,9 +625,12 @@ void main(){
 
                 // Check if projectile is off-screen
                 if (projectiles[j].x_position < 0 || projectiles[j].x_position > (SCREEN - projectiles[j].size - 1) ||
-                    projectiles[j].y_position < 0 || projectiles[j].y_position > (SCREEN - projectiles[j].size - 1))
+                    projectiles[j].y_position > (SCREEN - projectiles[j].size - 1))
                 {
                     projectiles[j].state = false;  // Deactivate projectile
+                    if (projectiles[j].y_position > (SCREEN - projectiles[j].size - 1)) {
+                        UART1SendProjectile(&projectiles[j]);
+                    }
                 }
                 else
                 {
@@ -541,6 +639,40 @@ void main(){
                                projectiles[j].y_position,
                                projectiles[j].size,
                                PLAYER_COLOR);
+                }
+            }
+        }
+
+        // -------------------------
+        // Update Incoming Projectiles
+        // -------------------------
+        for (j = 0; j < MAX_PROJECTILES; j++)
+        {
+            if (incoming_proj[j].state)
+            {
+                // Erase the projectile at its old position
+                fillCircle(incoming_proj[j].x_position,
+                           incoming_proj[j].y_position,
+                           incoming_proj[j].size,
+                           BLACK);
+
+                // Update projectile position based on its velocity
+                incoming_proj[j].x_position += incoming_proj[j].x_velocity;
+                incoming_proj[j].y_position += incoming_proj[j].y_velocity;
+
+                // Check if projectile is off-screen
+                if (incoming_proj[j].x_position < 0 || incoming_proj[j].x_position > (SCREEN - incoming_proj[j].size - 1) ||
+                        incoming_proj[j].y_position < (incoming_proj[j].size + 1))
+                {
+                    incoming_proj[j].state = false;  // Deactivate projectile
+                }
+                else
+                {
+                    // Draw projectile at its new position
+                    fillCircle(incoming_proj[j].x_position,
+                               incoming_proj[j].y_position,
+                               incoming_proj[j].size,
+                               (PLAYER_MODE) ? BLUE : RED);
                 }
             }
         }
