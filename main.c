@@ -33,6 +33,32 @@
 
 
 //*****************************************************************************
+//                          MACROS
+//*****************************************************************************
+//NEED TO UPDATE THIS FOR IT TO WORK!
+#define DATE                11    /* Current Date */
+#define MONTH               3     /* Month 1-12 */
+#define YEAR                2025  /* Current year */
+#define HOUR                12    /* Time - hours */
+#define MINUTE              18    /* Time - minutes */
+#define SECOND              0     /* Time - seconds */
+
+#define APPLICATION_VERSION  "WQ25"
+#define APP_NAME             "SSL + IR Decoding"
+#define CONSOLE              UARTA0_BASE
+#define SPI_IF_BIT_RATE      100000
+#define SERVER_NAME          "192.168.137.195"
+#define GOOGLE_DST_PORT      8443
+
+#define POSTHEADER "POST /update HTTP/1.1\r\n"             // CHANGE ME
+#define GETHEADER  "GET /things/LAB4_AWS/shadow HTTP/1.1\r\n"
+#define HOSTHEADER "Host: 192.168.137.195:5000\r\n"        // CHANGE ME
+#define CHEADER "Connection: Keep-Alive\r\n"
+#define CTHEADER "Content-Type: application/json; charset=utf-8\r\n"
+#define CLHEADER1 "Content-Length: "
+#define CLHEADER2 "\r\n\r\n"
+
+//*****************************************************************************
 //                      MACRO DEFINITIONS
 //*****************************************************************************
 #define APPLICATION_VERSION     "SQ25"
@@ -85,7 +111,6 @@ volatile int projectile_size = 2;
 volatile int projectile_scale = 1;
 volatile int ammo_cnt = 6;
 
-volatile bool game_running = true;
 volatile bool round_running = true;
 
 // Initialize projectile
@@ -152,8 +177,8 @@ DisplayBanner(char * AppName)
 //****************************************************************************
 //
 //! Reads registers 0x2 - 0x5 corresponding to X/Y acceleration data
-//! 
-//! This function  
+//!
+//! This function
 //!    1. Invokes the corresponding I2C APIs
 //!
 //! \return array containing X and Y byte data
@@ -330,6 +355,59 @@ void UART1ReceiveProjectile(Projectile *proj)
     proj->state = true;
 }
 
+void jsonify(const char *msg, char *output) {
+    snprintf(output, 256, "{\"default\": \"%s\"}", msg);
+}
+
+static int http_post(int iSockID, char* msg){
+    char acSendBuff[512];
+    char acRecvbuff[1460];
+    char cCLLength[200];
+    char* pcBufHeaders;
+    int lRetVal = 0;
+
+    pcBufHeaders = acSendBuff;
+    strcpy(pcBufHeaders, "POST /update HTTP/1.1\r\n");  // Flask's endpoint
+    pcBufHeaders += strlen(pcBufHeaders);
+    strcpy(pcBufHeaders, "Host: 192.168.137.195:5000\r\n");  // Update with Flask IP
+    pcBufHeaders += strlen(pcBufHeaders);
+    strcpy(pcBufHeaders, "Content-Type: application/json\r\n");
+    pcBufHeaders += strlen(pcBufHeaders);
+    strcpy(pcBufHeaders, "Connection: close\r\n");
+    pcBufHeaders += strlen(pcBufHeaders);
+
+    int dataLength = strlen(msg);
+    sprintf(cCLLength, "Content-Length: %d\r\n\r\n", dataLength);
+    strcpy(pcBufHeaders, cCLLength);
+    pcBufHeaders += strlen(cCLLength);
+
+    strcpy(pcBufHeaders, msg);
+    pcBufHeaders += strlen(msg);
+
+    UART_PRINT(acSendBuff);
+
+    // Send HTTP request
+    lRetVal = sl_Send(iSockID, acSendBuff, strlen(acSendBuff), 0);
+    if (lRetVal < 0) {
+        UART_PRINT("POST failed. Error: %d\n\r", lRetVal);
+        return lRetVal;
+    }
+
+    // Receive HTTP response
+    lRetVal = sl_Recv(iSockID, &acRecvbuff[0], sizeof(acRecvbuff), 0);
+    if (lRetVal < 0) {
+        UART_PRINT("Recv failed. Error: %d\n\r", lRetVal);
+        return lRetVal;
+    } else {
+        acRecvbuff[lRetVal] = '\0';
+        UART_PRINT("Response: %s\n\r", acRecvbuff);
+    }
+
+    return 0;
+}
+
+
+
 
 //*****************************************************************************
 //
@@ -390,7 +468,7 @@ BoardInit(void)
 //! \param  None
 //!
 //! \return None
-//! 
+//!
 //*****************************************************************************
 void main(){
     int iRetVal;
@@ -426,7 +504,7 @@ void main(){
     // I2C Init
     //
     I2C_IF_Open(I2C_MASTER_MODE_FST);
-    
+
     //
     // Display the banner followed by the usage description
     //
@@ -483,237 +561,234 @@ void main(){
     switch_intflag = 0;
 
 
+
     while (FOREVER)
     {
+        fillScreen(BLACK);
+        int shipPosition[2] = { ( (SCREEN / 2) - (SHIP_SIZE / 2) ), ( (SCREEN / 2) - (SHIP_SIZE / 2) ) };
+        int8_t shipVelocity[2] = { 0, 0 };
+        drawShipWithAmmo( ((SCREEN / 2) - (SHIP_SIZE / 2)), ((SCREEN / 2) - (SHIP_SIZE / 2)), SHIP_SIZE, PLAYER_COLOR, 6);
 
-        while (game_running)
+        int i;
+        for (i = 0; i < MAX_PROJECTILES; i++)
         {
-            fillScreen(BLACK);
-            int shipPosition[2] = { ( (SCREEN / 2) - (SHIP_SIZE / 2) ), ( (SCREEN / 2) - (SHIP_SIZE / 2) ) };
-            int8_t shipVelocity[2] = { 0, 0 };
-            drawShipWithAmmo( ((SCREEN / 2) - (SHIP_SIZE / 2)), ((SCREEN / 2) - (SHIP_SIZE / 2)), SHIP_SIZE, PLAYER_COLOR, 6);
+            projectiles[i].state = false;
+            projectiles[i].x_position = 0;
+            projectiles[i].y_position = 0;
+            projectiles[i].x_velocity = 0;
+            projectiles[i].y_velocity = 0;
+            projectiles[i].size = 0;
 
-            int i;
-            for (i = 0; i < MAX_PROJECTILES; i++)
-            {
-                projectiles[i].state = false;
-                projectiles[i].x_position = 0;
-                projectiles[i].y_position = 0;
-                projectiles[i].x_velocity = 0;
-                projectiles[i].y_velocity = 0;
-                projectiles[i].size = 0;
+            incoming_proj[i].state = false;
+            incoming_proj[i].x_position = 0;
+            incoming_proj[i].y_position = 0;
+            incoming_proj[i].x_velocity = 0;
+            incoming_proj[i].y_velocity = 0;
+            incoming_proj[i].size = 0;
+        }
 
-                incoming_proj[i].state = false;
-                incoming_proj[i].x_position = 0;
-                incoming_proj[i].y_position = 0;
-                incoming_proj[i].x_velocity = 0;
-                incoming_proj[i].y_velocity = 0;
-                incoming_proj[i].size = 0;
+        round_running = true;
+        while (round_running)
+        {
+            if (timer > 25) {
+                if (ammo_cnt < 6 && (MAP_GPIOPinRead(GPIOA1_BASE, 0x20) & 0x20) == 0) {
+                    ammo_cnt++;
+                }
+                timer = 0;
             }
 
-            round_running = true;
-            while (round_running)
+            if (MAP_UARTCharsAvail(UART1))
             {
-                if (timer > 25) {
-                    if (ammo_cnt < 6 && (MAP_GPIOPinRead(GPIOA1_BASE, 0x20) & 0x20) == 0) {
-                        ammo_cnt++;
-                    }
-                    timer = 0;
+                Projectile new_proj;
+                UART1ReceiveProjectile(&new_proj);
+                if (!round_running) {
+                    break;
                 }
 
-                if (MAP_UARTCharsAvail(UART1))
+                // Add the received projectile to an available slot
+                int i;
+                for (i = 0; i < MAX_PROJECTILES; i++)
                 {
-                    Projectile new_proj;
-                    UART1ReceiveProjectile(&new_proj);
-                    if (!round_running) {
+                    if (!incoming_proj[i].state)  // Find an inactive slot
+                    {
+                        incoming_proj[i] = new_proj;
                         break;
                     }
+                }
+            }
 
-                    // Add the received projectile to an available slot
+            // -------------------------
+            // Update Ship Position
+            // -------------------------
+            // Erase ship from the old position
+            drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, BLACK, 6);
+
+            // Get acceleration data and scale with max acceleration
+            int8_t* accData = ReadAccData();
+            int8_t xAcc = (int8_t)(((double)accData[0] / 64) * 13);
+            int8_t yAcc = (int8_t)(((double)accData[1] / 64) * 13);
+    //        Report("X Acc: %d, Y Acc: %d\n\r", accData[0], accData[1]);
+
+            // Update velocity based on acceleration and apply friction
+            shipVelocity[0] = (shipVelocity[0] + xAcc) * 0.99;
+            shipVelocity[1] = (shipVelocity[1] + yAcc) * 0.99;
+
+            // Update position based on velocity
+            shipPosition[0] += shipVelocity[0];
+            shipPosition[1] += shipVelocity[1];
+
+            // Keep ship position within screen bounds
+            if (shipPosition[0] <= 0) {
+                shipPosition[0] = 0;
+                shipVelocity[0] = 0;
+            } else if (shipPosition[0] > SCREEN - SHIP_SIZE - 1) {
+                shipPosition[0] = SCREEN - SHIP_SIZE - 1;
+                shipVelocity[0] = 0;
+            }
+
+            if (shipPosition[1] <= 0) {
+                shipPosition[1] = 0;
+                shipVelocity[1] = 0;
+            } else if (shipPosition[1] > SCREEN - SHIP_SIZE - 1) {
+                shipPosition[1] = SCREEN - SHIP_SIZE - 1;
+                shipVelocity[1] = 0;
+            }
+
+            // Draw ship at the new position
+            drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, PLAYER_COLOR, ammo_cnt);
+    //        Report("Ammo: %d\n\r", ammo_cnt);
+    //        Report("Projectile Scale: %d\n\r", projectile_scale);
+
+
+            // -------------------------
+            // Handle New Projectile
+            // -------------------------
+            if (switch_intflag)
+            {
+                switch_intflag = 0;
+                HWREG(NVIC_ST_CURRENT) = 1;  // Reset SysTick counter
+                systick_cnt = 0;
+
+                // Fire projectile only if ammo is available
+                if (ammo_cnt > 0 || projectile_scale > 1) {
                     int i;
                     for (i = 0; i < MAX_PROJECTILES; i++)
                     {
-                        if (!incoming_proj[i].state)  // Find an inactive slot
+                        if (!projectiles[i].state)  // Find an inactive slot
                         {
-                            incoming_proj[i] = new_proj;
+                            projectiles[i].state = true;
+                            projectiles[i].x_position = shipPosition[0] + (SHIP_SIZE / 2);
+                            projectiles[i].y_position = shipPosition[1] + SHIP_SIZE + projectile_size;
+                            projectiles[i].x_velocity = xAcc;
+                            projectiles[i].y_velocity = 10 + (projectile_scale * 4);
+                            projectiles[i].size = projectile_size;
+
+                            // Reset scale to minimum after firing
+                            projectile_scale = 1;
+                            if (ammo_cnt > 0) {
+                                ammo_cnt--;   // Decrease ammo immediately on shot
+                            }
                             break;
                         }
                     }
                 }
-
-                // -------------------------
-                // Update Ship Position
-                // -------------------------
-                // Erase ship from the old position
-                drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, BLACK, 6);
-
-                // Get acceleration data and scale with max acceleration
-                int8_t* accData = ReadAccData();
-                int8_t xAcc = (int8_t)(((double)accData[0] / 64) * 13);
-                int8_t yAcc = (int8_t)(((double)accData[1] / 64) * 13);
-        //        Report("X Acc: %d, Y Acc: %d\n\r", accData[0], accData[1]);
-
-                // Update velocity based on acceleration and apply friction
-                shipVelocity[0] = (shipVelocity[0] + xAcc) * 0.99;
-                shipVelocity[1] = (shipVelocity[1] + yAcc) * 0.99;
-
-                // Update position based on velocity
-                shipPosition[0] += shipVelocity[0];
-                shipPosition[1] += shipVelocity[1];
-
-                // Keep ship position within screen bounds
-                if (shipPosition[0] <= 0) {
-                    shipPosition[0] = 0;
-                    shipVelocity[0] = 0;
-                } else if (shipPosition[0] > SCREEN - SHIP_SIZE - 1) {
-                    shipPosition[0] = SCREEN - SHIP_SIZE - 1;
-                    shipVelocity[0] = 0;
-                }
-
-                if (shipPosition[1] <= 0) {
-                    shipPosition[1] = 0;
-                    shipVelocity[1] = 0;
-                } else if (shipPosition[1] > SCREEN - SHIP_SIZE - 1) {
-                    shipPosition[1] = SCREEN - SHIP_SIZE - 1;
-                    shipVelocity[1] = 0;
-                }
-
-                // Draw ship at the new position
-                drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, PLAYER_COLOR, ammo_cnt);
-        //        Report("Ammo: %d\n\r", ammo_cnt);
-        //        Report("Projectile Scale: %d\n\r", projectile_scale);
+            }
 
 
-                // -------------------------
-                // Handle New Projectile
-                // -------------------------
-                if (switch_intflag)
+            // -------------------------
+            // Update Projectiles
+            // -------------------------
+            int j;
+            for (j = 0; j < MAX_PROJECTILES; j++)
+            {
+                if (projectiles[j].state)
                 {
-                    switch_intflag = 0;
-                    HWREG(NVIC_ST_CURRENT) = 1;  // Reset SysTick counter
-                    systick_cnt = 0;
+                    // Erase the projectile at its old position
+                    fillCircle(projectiles[j].x_position,
+                               projectiles[j].y_position,
+                               projectiles[j].size,
+                               BLACK);
 
-                    // Fire projectile only if ammo is available
-                    if (ammo_cnt > 0 || projectile_scale > 1) {
-                        int i;
-                        for (i = 0; i < MAX_PROJECTILES; i++)
-                        {
-                            if (!projectiles[i].state)  // Find an inactive slot
-                            {
-                                projectiles[i].state = true;
-                                projectiles[i].x_position = shipPosition[0] + (SHIP_SIZE / 2);
-                                projectiles[i].y_position = shipPosition[1] + SHIP_SIZE + projectile_size;
-                                projectiles[i].x_velocity = xAcc;
-                                projectiles[i].y_velocity = 10 + (projectile_scale * 4);
-                                projectiles[i].size = projectile_size;
+                    // Update projectile position based on its velocity
+                    projectiles[j].x_position += projectiles[j].x_velocity;
+                    projectiles[j].y_position += projectiles[j].y_velocity;
 
-                                // Reset scale to minimum after firing
-                                projectile_scale = 1;
-                                if (ammo_cnt > 0) {
-                                    ammo_cnt--;   // Decrease ammo immediately on shot
-                                }
-                                break;
-                            }
+                    // Check if projectile is off-screen
+                    if (projectiles[j].x_position < 0 || projectiles[j].x_position > (SCREEN - projectiles[j].size - 1) ||
+                        projectiles[j].y_position > (SCREEN - projectiles[j].size - 1))
+                    {
+                        projectiles[j].state = false;  // Deactivate projectile
+                        if (projectiles[j].y_position > (SCREEN - projectiles[j].size - 1)) {
+                            UART1SendProjectile(&projectiles[j]);
                         }
                     }
-                }
-
-
-                // -------------------------
-                // Update Projectiles
-                // -------------------------
-                int j;
-                for (j = 0; j < MAX_PROJECTILES; j++)
-                {
-                    if (projectiles[j].state)
+                    else
                     {
-                        // Erase the projectile at its old position
+                        // Draw projectile at its new position
                         fillCircle(projectiles[j].x_position,
                                    projectiles[j].y_position,
                                    projectiles[j].size,
-                                   BLACK);
-
-                        // Update projectile position based on its velocity
-                        projectiles[j].x_position += projectiles[j].x_velocity;
-                        projectiles[j].y_position += projectiles[j].y_velocity;
-
-                        // Check if projectile is off-screen
-                        if (projectiles[j].x_position < 0 || projectiles[j].x_position > (SCREEN - projectiles[j].size - 1) ||
-                            projectiles[j].y_position > (SCREEN - projectiles[j].size - 1))
-                        {
-                            projectiles[j].state = false;  // Deactivate projectile
-                            if (projectiles[j].y_position > (SCREEN - projectiles[j].size - 1)) {
-                                UART1SendProjectile(&projectiles[j]);
-                            }
-                        }
-                        else
-                        {
-                            // Draw projectile at its new position
-                            fillCircle(projectiles[j].x_position,
-                                       projectiles[j].y_position,
-                                       projectiles[j].size,
-                                       PLAYER_COLOR);
-                        }
+                                   PLAYER_COLOR);
                     }
                 }
+            }
 
-                // -------------------------
-                // Update Incoming Projectiles
-                // -------------------------
-                for (j = 0; j < MAX_PROJECTILES; j++)
+            // -------------------------
+            // Update Incoming Projectiles
+            // -------------------------
+            for (j = 0; j < MAX_PROJECTILES; j++)
+            {
+                if (incoming_proj[j].state)
                 {
-                    if (incoming_proj[j].state)
+                    // Erase the projectile at its old position
+                    fillCircle(incoming_proj[j].x_position,
+                               incoming_proj[j].y_position,
+                               incoming_proj[j].size,
+                               BLACK);
+
+                    // Update projectile position based on its velocity
+                    incoming_proj[j].x_position += incoming_proj[j].x_velocity;
+                    incoming_proj[j].y_position += incoming_proj[j].y_velocity;
+
+                    // Collision Detection
+                    int proj_x = incoming_proj[j].x_position;
+                    int proj_y = incoming_proj[j].y_position;
+                    int proj_size = incoming_proj[j].size;
+
+                    // Check if projectile collides with the ship
+                    if (proj_x + proj_size > shipPosition[0] &&  // Projectile right edge > Ship left edge
+                        proj_x - proj_size < shipPosition[0] + SHIP_SIZE &&  // Projectile left edge < Ship right edge
+                        proj_y + proj_size > shipPosition[1] &&  // Projectile bottom edge > Ship top edge
+                        proj_y - proj_size < shipPosition[1] + SHIP_SIZE) // Projectile top edge < Ship bottom edge
                     {
-                        // Erase the projectile at its old position
+                        Report("Collision detected\n\r");
+                        char quitMsg[4] = "QUIT";
+                        int i;
+                        for (i = 0; i < 4; i++)
+                        {
+                            while (MAP_UARTBusy(UART1));
+                            MAP_UARTCharPut(UART1, quitMsg[i]);
+                        }
+
+                        // Clear the projectile
+                        incoming_proj[j].state = false;
+                        round_running = false;
+                        break;
+                    }
+
+                    // Check if projectile is off-screen
+                    if (incoming_proj[j].x_position < 0 || incoming_proj[j].x_position > (SCREEN - incoming_proj[j].size - 1) ||
+                            incoming_proj[j].y_position < (incoming_proj[j].size + 1))
+                    {
+                        incoming_proj[j].state = false;  // Deactivate projectile
+                    }
+                    else
+                    {
+                        // Draw projectile at its new position
                         fillCircle(incoming_proj[j].x_position,
                                    incoming_proj[j].y_position,
                                    incoming_proj[j].size,
-                                   BLACK);
-
-                        // Update projectile position based on its velocity
-                        incoming_proj[j].x_position += incoming_proj[j].x_velocity;
-                        incoming_proj[j].y_position += incoming_proj[j].y_velocity;
-
-                        // Collision Detection
-                        int proj_x = incoming_proj[j].x_position;
-                        int proj_y = incoming_proj[j].y_position;
-                        int proj_size = incoming_proj[j].size;
-
-                        // Check if projectile collides with the ship
-                        if (proj_x + proj_size > shipPosition[0] &&  // Projectile right edge > Ship left edge
-                            proj_x - proj_size < shipPosition[0] + SHIP_SIZE &&  // Projectile left edge < Ship right edge
-                            proj_y + proj_size > shipPosition[1] &&  // Projectile bottom edge > Ship top edge
-                            proj_y - proj_size < shipPosition[1] + SHIP_SIZE) // Projectile top edge < Ship bottom edge
-                        {
-                            Report("Collision detected\n\r");
-                            char quitMsg[4] = "QUIT";
-                            int i;
-                            for (i = 0; i < 4; i++)
-                            {
-                                while (MAP_UARTBusy(UART1));
-                                MAP_UARTCharPut(UART1, quitMsg[i]);
-                            }
-
-                            // Clear the projectile
-                            incoming_proj[j].state = false;
-                            round_running = false;
-                            break;
-                        }
-
-                        // Check if projectile is off-screen
-                        if (incoming_proj[j].x_position < 0 || incoming_proj[j].x_position > (SCREEN - incoming_proj[j].size - 1) ||
-                                incoming_proj[j].y_position < (incoming_proj[j].size + 1))
-                        {
-                            incoming_proj[j].state = false;  // Deactivate projectile
-                        }
-                        else
-                        {
-                            // Draw projectile at its new position
-                            fillCircle(incoming_proj[j].x_position,
-                                       incoming_proj[j].y_position,
-                                       incoming_proj[j].size,
-                                       (PLAYER_MODE) ? BLUE : RED);
-                        }
+                                   (PLAYER_MODE) ? BLUE : RED);
                     }
                 }
             }
