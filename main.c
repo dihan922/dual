@@ -742,24 +742,26 @@ void main(){
                     // Remove previous cursor
                     fillRect(106 - cx, 73, 12, 2, PINK);
 
-                    if (((data != prev_data) || (global_time - last_time_button_pressed >= 1500)) && (prev_data != 0xD6F) && (prev_data != 0x22F)) {
+                    if (((data != prev_data) || (global_time - last_time_button_pressed >= 1500)) &&
+                        (prev_data != 0xD6F) && (prev_data != 0x22F)) {
                         if (prev_data != 0xFEF) {
                             l = strlen(message);
                             message[l] = curr_letter;
                             message[l + 1] = '\0';
-                            x += 12;
-                            curr_cycle = 0;
                         }
-                        cx += 12;
+                        x += 12;
+                        curr_cycle = 0;
                     } else {
                         curr_cycle++;
+                        cx -= 12;
                     }
-                    prev_data = data;
                     last_time_button_pressed = global_time;
+
+                    if (prev_data == 0x22F && data != 0x22F) { cx += 12; }
 
                     switch (data) {
                         case 0x6EF: curr_letter = ' '; break;
-                        case 0xFEF: caps_lock = !caps_lock; curr_cycle--; break;
+                        case 0xFEF: caps_lock = !caps_lock; curr_cycle--; x -= 12; cx -= 12; break;
                         case 0x7EF: curr_cycle %= 3; curr_letter = 'a' + curr_cycle - (caps_lock * 32); break;
                         case 0xBEF: curr_cycle %= 3; curr_letter = 'd' + curr_cycle - (caps_lock * 32); break;
                         case 0x3EF: curr_cycle %= 3; curr_letter = 'g' + curr_cycle - (caps_lock * 32); break;
@@ -768,10 +770,21 @@ void main(){
                         case 0x9EF: curr_cycle %= 4; curr_letter = 'p' + curr_cycle - (caps_lock * 32); break;
                         case 0x1EF: curr_cycle %= 3; curr_letter = 't' + curr_cycle - (caps_lock * 32); break;
                         case 0xEEF: curr_cycle %= 4; curr_letter = 'w' + curr_cycle - (caps_lock * 32); break;
-                        case 0x22F:
+                        case 0x22F:  // Handle delete key
                             curr_letter = ' ';
+                            curr_cycle--;
                             l = strlen(message);
-                            if (l > 0) { message[l - 1] = '\0'; x -= 12; cx -= 12;}
+                            if (l > 0) {
+                                message[l - 1] = '\0';
+                                // Clear the cursor at the old position before moving it back
+                                fillRect(106 - cx, 73, 12, 2, PINK);
+                                x -= 12;
+                                if (prev_data != data) {
+                                    cx -= 24;
+                                } else {cx -= 12;}
+                                if (cx < -12) { cx = -12; }
+                                if (x < 12) { x = 12; }
+                            }
                             prev_data = data;
                             break;
                         case 0xD6F:
@@ -781,11 +794,15 @@ void main(){
                             curr_cycle = -1;
                             break;
                     }
+                    prev_data = data;
 
                     if (data != 0xD6F && data != 0xFEF) { drawChar(x, 36, curr_letter, 0xFFFF, PINK, 2); }
 
-                    // Draw the new cursor after typing
-                    fillRect(106 - cx, 73, 12, 2, 0xFFFF);
+                    if (data != 0xD6F) {
+                        // Draw the new cursor after typing
+                        cx += 12;
+                        fillRect(106 - cx, 73, 12, 2, 0xFFFF);
+                    }
                 }
             }
             game_running = true;
