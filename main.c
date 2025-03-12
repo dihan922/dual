@@ -742,8 +742,7 @@ void main(){
                     // Remove previous cursor
                     fillRect(106 - cx, 73, 12, 2, PINK);
 
-                    if (((data != prev_data) || (global_time - last_time_button_pressed >= 1500)) &&
-                        (prev_data != 0xD6F) && (prev_data != 0x22F)) {
+                    if (((data != prev_data) || (global_time - last_time_button_pressed >= 1500)) && (prev_data != 0xD6F) && (prev_data != 0x22F)) {
                         if (prev_data != 0xFEF) {
                             l = strlen(message);
                             message[l] = curr_letter;
@@ -805,7 +804,28 @@ void main(){
                     }
                 }
             }
-            game_running = true;
+        }
+
+        // Signal other board of own ready state
+        char readyMsg[5] = "READY";
+        for (i = 0; i < 5; i++)
+        {
+            while (MAP_UARTBusy(UART1));
+            MAP_UARTCharPut(UART1, readyMsg[i]);
+        }
+
+        // Confirm other board's ready state and start game
+        char buffer[5] = "";
+        int index = 0;
+        while (index < 5)
+        {
+            if (MAP_UARTCharsAvail(UART1))
+            {
+                buffer[index++] = MAP_UARTCharGetNonBlocking(UART1);
+            }
+            if (strncmp(buffer, "READY", 5) == 0) {
+                game_running = true;
+            }
         }
 
         while (game_running)
