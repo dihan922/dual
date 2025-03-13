@@ -118,6 +118,10 @@ volatile bool game_running = true;
 volatile bool round_running = true;
 volatile int timer = 0;
 
+// Score variables
+volatile int my_score = 0;
+volatile int opponent_score = 0;
+
 // Multi-tap variables
 volatile int systick_cnt = 0;
 volatile int edge_counter = 0;
@@ -127,15 +131,14 @@ volatile int prev_data = -1;
 
 volatile uint32_t global_time = 0;          //
 volatile uint32_t prev_detection = 0;       //
-volatile uint32_t prev_print = 0;
 volatile uint32_t last_time_button_pressed = 0;
 
 volatile int curr_cycle = -1;
 volatile char curr_letter = 0;
 volatile int x = 0;
-char message[50] = "";
+char username[50] = "";
 int l;
-volatile bool message_sent = false;
+volatile bool name_set = false;
 volatile bool caps_lock = false;
 
 // Initialize projectile
@@ -452,6 +455,7 @@ void UART1ReceiveProjectile(Projectile *proj)
         }
         if (strncmp(buffer, "QUIT", 4) == 0) {
             round_running = false;
+            my_score++;
             return;
         }
     }
@@ -463,6 +467,36 @@ void UART1ReceiveProjectile(Projectile *proj)
     proj->y_velocity = ((buffer[6] << 24) | (buffer[7] << 16) | (buffer[8] << 8) | buffer[9]) * -1;
     proj->size = buffer[10];
     proj->state = true;
+}
+
+void drawWinLoseScreen(bool won) {
+    fillScreen(0xFA26);
+
+    char *message = won ? "WIN" : "LOSE";
+    int i;
+    int x = won ? 32 : 22;
+    for (i = 0; i < strlen(message); i++) {
+        drawChar(x, 28, message[i], 0xFFFF, PINK, 4);
+        x += 24;
+    }
+
+    // Draw Restart Symbol
+    int restartX = 86;
+    int restartY = 36;
+    for (i = 0; i < 4; i++) {
+        drawCircle(restartX, restartY, 14 - i, 0xFFFF);
+    }
+    fillRect(restartX - 15, restartY - 15, 8, 18, PINK);
+    fillTriangle(restartX - 8, restartY + 2, restartX - 12, restartY + 2, restartX - 12, restartY - 4, 0xFFFF);
+    fillTriangle(restartX - 16, restartY + 2, restartX - 12, restartY + 2, restartX - 12, restartY - 4, 0xFFFF);
+
+    // Draw Home Symbol
+    int homeX = 42;
+    int homeY = 36;
+    fillRect(homeX - 13, homeY - 13, 21, 15, 0xFFFF);
+    fillTriangle(homeX + 11, homeY - 1, homeX - 3, homeY - 1, homeX - 3, homeY + 13, 0xFFFF);
+    fillTriangle(homeX - 17, homeY - 1, homeX - 3, homeY - 1, homeX - 3, homeY + 13, 0xFFFF);
+    fillRect(homeX - 6, homeY - 13, 7, 10, PINK);
 }
 
 void jsonify(const char *msg, char *output) {
@@ -724,10 +758,24 @@ void main(){
         }
         x = 0;
 
+        // Reset multi-tap variables
+        memset(username, 0, sizeof(username));
+        username[0] = '\0';
+        data = 0;
+        prev_data = -1;
+        global_time = 0;
+        prev_detection = 0;
+        last_time_button_pressed = 0;
+        curr_cycle = -1;
+        curr_letter = 0;
+        name_set = false;
+        caps_lock = false;
+
         bool cursor_visible = true;
         uint32_t last_cursor_toggle = global_time;
+        name_set = false;
 
-        while (!message_sent) {
+        while (!name_set) {
             if (global_time - last_cursor_toggle > 500) {  // Blink every 500ms
                 cursor_visible = !cursor_visible;  // Toggle visibility
                 fillRect(106 - cx, 73, 12, 2, cursor_visible ? 0xFFFF : PINK); // Toggle color
@@ -744,9 +792,9 @@ void main(){
 
                     if (((data != prev_data) || (global_time - last_time_button_pressed >= 1500)) && (prev_data != 0xD6F) && (prev_data != 0x22F)) {
                         if (prev_data != 0xFEF) {
-                            l = strlen(message);
-                            message[l] = curr_letter;
-                            message[l + 1] = '\0';
+                            l = strlen(username);
+                            username[l] = curr_letter;
+                            username[l + 1] = '\0';
                         }
                         x += 12;
                         curr_cycle = 0;
@@ -772,9 +820,9 @@ void main(){
                         case 0x22F:  // Handle delete key
                             curr_letter = ' ';
                             curr_cycle--;
-                            l = strlen(message);
+                            l = strlen(username);
                             if (l > 0) {
-                                message[l - 1] = '\0';
+                                username[l - 1] = '\0';
                                 // Clear the cursor at the old position before moving it back
                                 fillRect(106 - cx, 73, 12, 2, PINK);
                                 x -= 12;
@@ -787,9 +835,10 @@ void main(){
                             prev_data = data;
                             break;
                         case 0xD6F:
-                            Report("%s", message);
-                            memset(message, 0, sizeof(message));
-                            message_sent = true;
+                            if (strlen(username) > 0) {
+                                Report("%s", username);
+                                name_set = true;
+                            }
                             curr_cycle = -1;
                             break;
                     }
@@ -827,6 +876,9 @@ void main(){
                 game_running = true;
             }
         }
+
+        my_score = 0;
+        opponent_score = 0;
 
         while (game_running)
         {
@@ -1023,7 +1075,7 @@ void main(){
                             proj_y + proj_size > shipPosition[1] &&  // Projectile bottom edge > Ship top edge
                             proj_y - proj_size < shipPosition[1] + SHIP_SIZE) // Projectile top edge < Ship bottom edge
                         {
-                            Report("Collision detected\n\r");
+//                            Report("Collision detected\n\r");
                             char quitMsg[4] = "QUIT";
                             int i;
                             for (i = 0; i < 4; i++)
@@ -1035,6 +1087,10 @@ void main(){
                             // Clear the projectile
                             incoming_proj[j].state = false;
                             round_running = false;
+
+                            opponent_score++;
+                            /* Send POST Here */
+
                             break;
                         }
 
@@ -1054,6 +1110,41 @@ void main(){
                         }
                     }
                 }
+            }
+
+            if (my_score >= 5 || opponent_score >= 5) {
+                data = 0;
+                drawWinLoseScreen((my_score > opponent_score));
+                int selectX = 65;
+                bool select_visible = false;
+                uint32_t last_select_toggle = global_time;
+                prev_data = 0;
+
+                while (data != 0x58F) {
+                    if (global_time - last_select_toggle > 400) {  // Blink every 400ms
+                        select_visible = !select_visible;  // Toggle visibility
+                        last_select_toggle = global_time;
+                        drawRoundRect(selectX, 15, 42, 42, 5, select_visible ? 0xFFFF : PINK);
+                        drawRoundRect(selectX + 1, 16, 40, 40, 5, select_visible ? 0xFFFF : PINK);
+                    }
+                    if (data != prev_data) {
+                        if (data == 0xD2F) {
+                            prev_data = data;
+                            drawRoundRect(selectX, 15, 42, 42, 5, PINK);
+                            drawRoundRect(selectX + 1, 16, 40, 40, 5, PINK);
+                            selectX = 65;
+                            game_running = true;
+                        } else if (data == 0x32F) {
+                            prev_data = data;
+                            drawRoundRect(selectX, 15, 42, 42, 5, PINK);
+                            drawRoundRect(selectX + 1, 16, 40, 40, 5, PINK);
+                            selectX = 18;
+                            game_running = false;
+                        }
+                    }
+                }
+                my_score = 0;
+                opponent_score = 0;
             }
         }
     }
