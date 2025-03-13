@@ -1114,11 +1114,17 @@ void main(){
 
             if (my_score >= 5 || opponent_score >= 5) {
                 data = 0;
+                prev_data = 0;
                 drawWinLoseScreen((my_score > opponent_score));
                 int selectX = 65;
                 bool select_visible = false;
                 uint32_t last_select_toggle = global_time;
-                prev_data = 0;
+                char ack = 0;
+
+                // Clear UART Buffer
+                while (MAP_UARTCharsAvail(UART1)) {
+                    MAP_UARTCharGetNonBlocking(UART1);
+                }
 
                 while (data != 0x58F) {
                     if (global_time - last_select_toggle > 400) {  // Blink every 400ms
@@ -1127,6 +1133,7 @@ void main(){
                         drawRoundRect(selectX, 15, 42, 42, 5, select_visible ? 0xFFFF : PINK);
                         drawRoundRect(selectX + 1, 16, 40, 40, 5, select_visible ? 0xFFFF : PINK);
                     }
+
                     if (data != prev_data) {
                         if (data == 0xD2F) {
                             prev_data = data;
@@ -1145,6 +1152,22 @@ void main(){
                 }
                 my_score = 0;
                 opponent_score = 0;
+
+                if (game_running) {
+                    while (MAP_UARTBusy(UART1));
+                    MAP_UARTCharPut(UART1, 'r');
+                } else {
+                    while (MAP_UARTBusy(UART1));
+                    MAP_UARTCharPut(UART1, 'h');
+                }
+
+                while (!MAP_UARTCharsAvail(UART1));
+                ack = MAP_UARTCharGetNonBlocking(UART1);
+                if (ack == 'r') {
+                    game_running = true;
+                } else if (ack == 'h') {
+                    game_running = false;
+                }
             }
         }
     }
