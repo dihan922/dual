@@ -31,6 +31,8 @@
 
 #include "pin_mux_config.h"
 #include "Adafruit_GFX.h"
+#include "simplelink.h"
+#include "utils/network_utils.h"
 
 
 //*****************************************************************************
@@ -48,12 +50,12 @@
 #define APP_NAME             "SSL + IR Decoding"
 #define CONSOLE              UARTA0_BASE
 #define SPI_IF_BIT_RATE      100000
-#define SERVER_NAME          "192.168.137.195"
+#define SERVER_NAME          "52.88.252.80"
 #define GOOGLE_DST_PORT      8443
 
-#define POSTHEADER "POST /update HTTP/1.1\r\n"             // CHANGE ME
-#define GETHEADER  "GET /things/LAB4_AWS/shadow HTTP/1.1\r\n"
-#define HOSTHEADER "Host: 192.168.137.195:5000\r\n"        // CHANGE ME
+#define POSTHEADER "POST /things/FinalThing/shadow HTTP/1.1\r\n"             // CHANGE ME
+#define GETHEADER  "GET /things/FinalThing/shadow HTTP/1.1\r\n"
+#define HOSTHEADER "Host: ahvzuro29rftq-ats.iot.us-west-2.amazonaws.com\r\n"        // CHANGE ME
 #define CHEADER "Connection: Keep-Alive\r\n"
 #define CTHEADER "Content-Type: application/json; charset=utf-8\r\n"
 #define CLHEADER1 "Content-Length: "
@@ -84,7 +86,7 @@
 // MASTER_MODE = 0 : Player is BLUE
 //
 //*****************************************************************************
-#define PLAYER_MODE 1
+#define PLAYER_MODE 0
 
 // Color definitions
 #define BLACK           0x0000
@@ -117,6 +119,7 @@ volatile int input_held_cnt = 0;
 volatile bool game_running = true;
 volatile bool round_running = true;
 volatile int timer = 0;
+volatile int lRetVal;
 
 // Score variables
 volatile int my_score = 0;
@@ -456,6 +459,13 @@ void UART1ReceiveProjectile(Projectile *proj)
         if (strncmp(buffer, "QUIT", 4) == 0) {
             round_running = false;
             my_score++;
+
+            /* Send POST Here */
+            char msg[100];
+            snprintf(msg, sizeof(msg), "{ \"username\": \"%s\", \"my_score\": %d, \"opponent_score\": %d }", username, my_score, opponent_score);
+            char jsonmsg[100];
+            jsonify(msg, jsonmsg);
+            http_post(lRetVal, jsonmsg);
             return;
         }
     }
@@ -500,10 +510,18 @@ void drawWinLoseScreen(bool won) {
 }
 
 void jsonify(const char *msg, char *output) {
-    snprintf(output, 256, "{\"default\": \"%s\"}", msg);
+    const char *format = "{"
+                         "\"state\": {\r\n"
+                         "\"desired\" : {\r\n"
+                         "\"default\" : %s\r\n"
+                         "}"
+                         "}"
+                         "}\r\n\r\n";
+    snprintf(output, 256, format, msg);
 }
 
-static int http_post(int iSockID, char* msg){
+
+static int http_post(int iTLSSockID, char* msg){
     char acSendBuff[512];
     char acRecvbuff[1460];
     char cCLLength[200];
@@ -511,43 +529,78 @@ static int http_post(int iSockID, char* msg){
     int lRetVal = 0;
 
     pcBufHeaders = acSendBuff;
-    strcpy(pcBufHeaders, "POST /update HTTP/1.1\r\n");  // Flask's endpoint
-    pcBufHeaders += strlen(pcBufHeaders);
-    strcpy(pcBufHeaders, "Host: 192.168.137.195:5000\r\n");  // Update with Flask IP
-    pcBufHeaders += strlen(pcBufHeaders);
-    strcpy(pcBufHeaders, "Content-Type: application/json\r\n");
-    pcBufHeaders += strlen(pcBufHeaders);
-    strcpy(pcBufHeaders, "Connection: close\r\n");
-    pcBufHeaders += strlen(pcBufHeaders);
+    strcpy(pcBufHeaders, POSTHEADER);
+    pcBufHeaders += strlen(POSTHEADER);
+    strcpy(pcBufHeaders, HOSTHEADER);
+    pcBufHeaders += strlen(HOSTHEADER);
+    strcpy(pcBufHeaders, CHEADER);
+    pcBufHeaders += strlen(CHEADER);
+    strcpy(pcBufHeaders, "\r\n\r\n");
 
     int dataLength = strlen(msg);
-    sprintf(cCLLength, "Content-Length: %d\r\n\r\n", dataLength);
+
+    strcpy(pcBufHeaders, CTHEADER);
+    pcBufHeaders += strlen(CTHEADER);
+    strcpy(pcBufHeaders, CLHEADER1);
+
+    pcBufHeaders += strlen(CLHEADER1);
+    sprintf(cCLLength, "%d", dataLength);
+
     strcpy(pcBufHeaders, cCLLength);
     pcBufHeaders += strlen(cCLLength);
+    strcpy(pcBufHeaders, CLHEADER2);
+    pcBufHeaders += strlen(CLHEADER2);
 
     strcpy(pcBufHeaders, msg);
     pcBufHeaders += strlen(msg);
 
+    int testDataLength = strlen(pcBufHeaders);
+
     UART_PRINT(acSendBuff);
 
-    // Send HTTP request
-    lRetVal = sl_Send(iSockID, acSendBuff, strlen(acSendBuff), 0);
-    if (lRetVal < 0) {
-        UART_PRINT("POST failed. Error: %d\n\r", lRetVal);
+
+    //
+    // Send the packet to the server */
+    //
+    lRetVal = sl_Send(iTLSSockID, acSendBuff, strlen(acSendBuff), 0);
+    if(lRetVal < 0) {
+        UART_PRINT("POST failed. Error Number: %i\n\r",lRetVal);
+        sl_Close(iTLSSockID);
+        GPIO_IF_LedOn(MCU_RED_LED_GPIO);
         return lRetVal;
     }
-
-    // Receive HTTP response
-    lRetVal = sl_Recv(iSockID, &acRecvbuff[0], sizeof(acRecvbuff), 0);
-    if (lRetVal < 0) {
-        UART_PRINT("Recv failed. Error: %d\n\r", lRetVal);
-        return lRetVal;
-    } else {
-        acRecvbuff[lRetVal] = '\0';
-        UART_PRINT("Response: %s\n\r", acRecvbuff);
+    lRetVal = sl_Recv(iTLSSockID, &acRecvbuff[0], sizeof(acRecvbuff), 0);
+    if(lRetVal < 0) {
+        UART_PRINT("Received failed. Error Number: %i\n\r",lRetVal);
+        //sl_Close(iSSLSockID);
+        GPIO_IF_LedOn(MCU_RED_LED_GPIO);
+           return lRetVal;
+    }
+    else {
+        acRecvbuff[lRetVal+1] = '\0';
+        UART_PRINT(acRecvbuff);
+        UART_PRINT("\n\r\n\r");
     }
 
     return 0;
+}
+
+static int set_time() {
+    long retVal;
+
+    g_time.tm_day = DATE;
+    g_time.tm_mon = MONTH;
+    g_time.tm_year = YEAR;
+    g_time.tm_sec = HOUR;
+    g_time.tm_hour = MINUTE;
+    g_time.tm_min = SECOND;
+
+    retVal = sl_DevSet(SL_DEVICE_GENERAL_CONFIGURATION,
+                          SL_DEVICE_GENERAL_CONFIGURATION_DATE_TIME,
+                          sizeof(SlDateTime),(unsigned char *)(&g_time));
+
+    ASSERT_ON_ERROR(retVal);
+    return SUCCESS;
 }
 
 
@@ -634,7 +687,6 @@ BoardInit(void)
 //! 
 //*****************************************************************************
 void main(){
-    int iRetVal;
     char acCmdStore[512];
     unsigned long ulStatus;
 
@@ -744,6 +796,23 @@ void main(){
     // Enable pin out interrupt
     MAP_GPIOIntEnable(GPIOA0_BASE, 0x40);
 
+    // initialize global default app configuration
+    g_app_config.host = SERVER_NAME;
+    g_app_config.port = GOOGLE_DST_PORT;
+
+    //Connect the CC3200 to the local access point
+    lRetVal = connectToAccessPoint();
+    //Set time so that encryption can be used
+    lRetVal = set_time();
+    if(lRetVal < 0) {
+        UART_PRINT("Unable to set time in the device");
+        LOOP_FOREVER();
+    }
+    //Connect to the website with TLS encryption
+    lRetVal = tls_connect();
+    if(lRetVal < 0) {
+        ERR_PRINT(lRetVal);
+    }
 
     while (FOREVER)
     {
@@ -863,6 +932,13 @@ void main(){
             MAP_UARTCharPut(UART1, readyMsg[i]);
         }
 
+        /* Send POST Here */
+        char msg[100];
+        snprintf(msg, sizeof(msg), "{ \"username\": \"%s\" }", username);
+        char jsonmsg[100];
+        jsonify(msg, jsonmsg);
+        http_post(lRetVal, jsonmsg);
+
         // Confirm other board's ready state and start game
         char buffer[5] = "";
         int index = 0;
@@ -879,6 +955,11 @@ void main(){
 
         my_score = 0;
         opponent_score = 0;
+
+        /* Send POST Here */
+        snprintf(msg, sizeof(msg), "{ \"username\": \"%s\" }", username);
+        jsonify(msg, jsonmsg);
+        http_post(lRetVal, jsonmsg);
 
         while (game_running)
         {
@@ -1090,7 +1171,12 @@ void main(){
 
                             opponent_score++;
                             /* Send POST Here */
-
+                            char msg[100];
+                            snprintf(msg, sizeof(msg), "{ \"username\": \"%s\", \"my_score\": %d, \"opponent_score\": %d }", username, my_score, opponent_score);
+                            char jsonmsg[100];
+                            jsonify(msg, jsonmsg);
+                            http_post(lRetVal, jsonmsg);
+                            
                             break;
                         }
 
@@ -1165,6 +1251,13 @@ void main(){
                 ack = MAP_UARTCharGetNonBlocking(UART1);
                 if (ack == 'r') {
                     game_running = true;
+
+                    /* Send POST Here */
+                    char msg[100];
+                    snprintf(msg, sizeof(msg), "{ \"username\": \"%s\" }", username);
+                    char jsonmsg[100];
+                    jsonify(msg, jsonmsg);
+                    http_post(lRetVal, jsonmsg);
                 } else if (ack == 'h') {
                     game_running = false;
                 }
