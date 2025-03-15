@@ -3,30 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CC3200 Messages</title>
-    <script>
-        async function fetchMessage() {
-            const response = await fetch("/update", {
-                method: "GET"
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                document.getElementById("message").innerText = data.updated_message;
-            } else {
-                console.error("Failed to fetch update:", response.status);
-            }
-        }
-
-// Fetch new messages every 2 seconds
-setInterval(fetchMessage, 2000);
-
-
-        setInterval(fetchMessage, 2000);  // Auto-refresh every 2 seconds
-    </script>
+    <title>CC3200 Data</title>
 </head>
 <body>
-    <h1>CC3200 Messages</h1>
-    <p id="message">Waiting for updates...</p>
+    <h1>Data from CC3200</h1>
+    <p id="data-display">Waiting for data...</p>
+
+    <script>
+        function fetchData() {
+            fetch('https://b219-168-150-44-88.ngrok-free.ap')  // CHANGE
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('data-display').innerText = data.message;
+                })
+                .catch(error => console.error('Error fetching data:', error));
+        }
+
+        setInterval(fetchData, 5000);
+        fetchData();
+    </script>
 </body>
 </html>
