@@ -82,8 +82,8 @@
 //
 // Player mode selector macro
 //
-// MASTER_MODE = 1 : Player is RED
-// MASTER_MODE = 0 : Player is BLUE
+// PLAYER_MODE = 1 : Player is RED
+// PLAYER_MODE = 0 : Player is BLUE
 //
 //*****************************************************************************
 #define PLAYER_MODE 0
@@ -107,7 +107,14 @@
 
 #define TICKS_TO_US(ticks) \
     ((((ticks) / SYSCLKFREQ) * 1000000ULL) + \
-    ((((ticks) % SYSCLKFREQ) * 1000000ULL) / SYSCLKFREQ))\
+    ((((ticks) % SYSCLKFREQ) * 1000000ULL) / SYSCLKFREQ))
+
+//*****************************************************************************
+//                 GLOBAL VARIABLES -- Start
+//*****************************************************************************
+// Flags
+volatile unsigned char switch_intflag;     // flag set when switch is pressed
+volatile unsigned char pin_out_intflag;    // flag set when IR input is received
 
 // Projectile variables
 volatile int projectile_size = 2;
@@ -156,11 +163,6 @@ typedef struct {
     volatile int  size;
 } Projectile;
 
-//*****************************************************************************
-//                 GLOBAL VARIABLES -- Start
-//*****************************************************************************
-volatile unsigned char switch_intflag;     // flag set when switch is pressed
-volatile unsigned char pin_out_intflag;
 
 #if defined(ccs)
 extern void (* const g_pfnVectors[])(void);
@@ -419,9 +421,9 @@ void UART1SendProjectile(Projectile *proj)
 {
     char buffer[11];
 
-    // Pack the projectile data into the buffer
-    buffer[0] = (proj->x_position >> 8) & 0xFF;  // High byte of x_position
-    buffer[1] = proj->x_position & 0xFF;         // Low byte of x_position
+    // Pack projectile data into buffer
+    buffer[0] = (proj->x_position >> 8) & 0xFF;
+    buffer[1] = proj->x_position & 0xFF;
 
     buffer[2]  = (proj->x_velocity >> 24) & 0xFF;
     buffer[3]  = (proj->x_velocity >> 16) & 0xFF;
@@ -433,34 +435,35 @@ void UART1SendProjectile(Projectile *proj)
     buffer[8]  = (proj->y_velocity >> 8) & 0xFF;
     buffer[9]  = proj->y_velocity & 0xFF;
 
-    buffer[10] = proj->size;  // Projectile size (1 byte)
+    buffer[10] = proj->size;
 
     // Send each byte through UART1
     int i;
     for (i = 0; i < 11; i++)
     {
-        while (MAP_UARTBusy(UART1)); // Wait until UART is ready
+        while (MAP_UARTBusy(UART1));
         MAP_UARTCharPut(UART1, buffer[i]);
     }
 }
 
 void UART1ReceiveProjectile(Projectile *proj)
 {
-    char buffer[11] = "";  // Buffer to store received data
+    char buffer[11] = "";
     int index = 0;
 
-    // Wait until we have received exactly 12 bytes
+    // Wait until we have received exactly 12 bytes of projectile data
     while (index < 11)
     {
         if (MAP_UARTCharsAvail(UART1))
         {
             buffer[index++] = MAP_UARTCharGetNonBlocking(UART1);
         }
+        // Exit round and update score if collision on opponent's board was received
         if (strncmp(buffer, "QUIT", 4) == 0) {
             round_running = false;
             my_score++;
 
-            /* Send POST Here */
+            // Send POST request
             char msg[100];
             snprintf(msg, sizeof(msg), "{ \"username\": \"%s\", \"my_score\": %d, \"opponent_score\": %d }", username, my_score, opponent_score);
             char jsonmsg[100];
@@ -482,6 +485,7 @@ void UART1ReceiveProjectile(Projectile *proj)
 void drawWinLoseScreen(bool won) {
     fillScreen(0xFA26);
 
+    // Draw WIN or LOSE message
     char *message = won ? "WIN" : "LOSE";
     int i;
     int x = won ? 32 : 22;
@@ -490,7 +494,7 @@ void drawWinLoseScreen(bool won) {
         x += 24;
     }
 
-    // Draw Restart Symbol
+    // Draw restart symbol
     int restartX = 86;
     int restartY = 36;
     for (i = 0; i < 4; i++) {
@@ -500,7 +504,7 @@ void drawWinLoseScreen(bool won) {
     fillTriangle(restartX - 8, restartY + 2, restartX - 12, restartY + 2, restartX - 12, restartY - 4, 0xFFFF);
     fillTriangle(restartX - 16, restartY + 2, restartX - 12, restartY + 2, restartX - 12, restartY - 4, 0xFFFF);
 
-    // Draw Home Symbol
+    // Draw home symbol
     int homeX = 42;
     int homeY = 36;
     fillRect(homeX - 13, homeY - 13, 21, 15, 0xFFFF);
@@ -750,15 +754,6 @@ void main(){
     //
     MAP_SPIEnable(GSPI_BASE);
 
-    // Initialize ship
-    int SHIP_SIZE = 24;
-    int PLAYER_COLOR = (PLAYER_MODE) ? RED : BLUE;
-    int SCREEN = 128;
-
-    // Create an array to hold up to MAX_PROJECTILES projectiles.
-    Projectile projectiles[MAX_PROJECTILES];
-    Projectile incoming_proj[MAX_PROJECTILES];
-
     Adafruit_Init();
 
     //
@@ -814,15 +809,25 @@ void main(){
         ERR_PRINT(lRetVal);
     }
 
+    // Initialize ship
+    int SHIP_SIZE = 24;
+    int PLAYER_COLOR = (PLAYER_MODE) ? RED : BLUE;
+    int SCREEN = 128;
+
+    // Create an array to hold up to MAX_PROJECTILES projectiles.
+    Projectile projectiles[MAX_PROJECTILES];
+    Projectile incoming_proj[MAX_PROJECTILES];
+
     while (FOREVER)
     {
+        // Draw username prompt
         fillScreen(PINK);
         int i;
         int cx = 0;
         x = 12;
-        char user_input[9] = "Username:";
+        char username_prompt[9] = "Username:";
         for (i = 0; i < 9; i++) {
-            drawChar(x, 12, user_input[i], 0xFFFF, PINK, 2);
+            drawChar(x, 12, username_prompt[i], 0xFFFF, PINK, 2);
             x += 12;
         }
         x = 0;
@@ -844,6 +849,7 @@ void main(){
         uint32_t last_cursor_toggle = global_time;
         name_set = false;
 
+        // Start multi-tap input and draw cursor
         while (!name_set) {
             if (global_time - last_cursor_toggle > 500) {  // Blink every 500ms
                 cursor_visible = !cursor_visible;  // Toggle visibility
@@ -932,7 +938,7 @@ void main(){
             MAP_UARTCharPut(UART1, readyMsg[i]);
         }
 
-        /* Send POST Here */
+        // Send POST request
         char msg[100];
         snprintf(msg, sizeof(msg), "{ \"username\": \"%s\" }", username);
         char jsonmsg[100];
@@ -956,7 +962,7 @@ void main(){
         my_score = 0;
         opponent_score = 0;
 
-        /* Send POST Here */
+        // Send POST request
         snprintf(msg, sizeof(msg), "{ \"username\": \"%s\" }", username);
         jsonify(msg, jsonmsg);
         http_post(lRetVal, jsonmsg);
@@ -989,9 +995,7 @@ void main(){
             round_running = true;
             while (round_running)
             {
-                // -------------------------
                 // Handle Incoming Projectile
-                // -------------------------
                 if (MAP_UARTCharsAvail(UART1))
                 {
                     Projectile new_proj;
@@ -1012,17 +1016,13 @@ void main(){
                     }
                 }
 
-                // -------------------------
                 // Update Ship Position
-                // -------------------------
-                // Erase ship from the old position
-                drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, BLACK, 6);
+                drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, BLACK, 6); // Erase ship from the old position
 
                 // Get acceleration data and scale with max acceleration
                 int8_t* accData = ReadAccData();
                 int8_t xAcc = (int8_t)(((double)accData[0] / 64) * 13);
                 int8_t yAcc = (int8_t)(((double)accData[1] / 64) * 13);
-        //        Report("X Acc: %d, Y Acc: %d\n\r", accData[0], accData[1]);
 
                 // Update velocity based on acceleration and apply friction
                 shipVelocity[0] = (shipVelocity[0] + xAcc) * 0.99;
@@ -1051,13 +1051,9 @@ void main(){
 
                 // Draw ship at the new position
                 drawShipWithAmmo(shipPosition[0], shipPosition[1], SHIP_SIZE, PLAYER_COLOR, ammo_cnt);
-        //        Report("Ammo: %d\n\r", ammo_cnt);
-        //        Report("Projectile Scale: %d\n\r", projectile_scale);
 
 
-                // -------------------------
                 // Handle New Projectile
-                // -------------------------
                 if (switch_intflag)
                 {
                     switch_intflag = 0;
@@ -1090,9 +1086,7 @@ void main(){
                 }
 
 
-                // -------------------------
                 // Update Projectiles
-                // -------------------------
                 int j;
                 for (j = 0; j < MAX_PROJECTILES; j++)
                 {
@@ -1128,9 +1122,7 @@ void main(){
                     }
                 }
 
-                // -------------------------
                 // Update Incoming Projectiles
-                // -------------------------
                 for (j = 0; j < MAX_PROJECTILES; j++)
                 {
                     if (incoming_proj[j].state)
@@ -1151,12 +1143,9 @@ void main(){
                         int proj_size = incoming_proj[j].size;
 
                         // Check if projectile collides with the ship
-                        if (proj_x + proj_size > shipPosition[0] &&  // Projectile right edge > Ship left edge
-                            proj_x - proj_size < shipPosition[0] + SHIP_SIZE &&  // Projectile left edge < Ship right edge
-                            proj_y + proj_size > shipPosition[1] &&  // Projectile bottom edge > Ship top edge
-                            proj_y - proj_size < shipPosition[1] + SHIP_SIZE) // Projectile top edge < Ship bottom edge
+                        if (proj_x + proj_size > shipPosition[0] && proj_x - proj_size < shipPosition[0] + SHIP_SIZE &&
+                            proj_y + proj_size > shipPosition[1] && proj_y - proj_size < shipPosition[1] + SHIP_SIZE)
                         {
-//                            Report("Collision detected\n\r");
                             char quitMsg[4] = "QUIT";
                             int i;
                             for (i = 0; i < 4; i++)
@@ -1170,7 +1159,7 @@ void main(){
                             round_running = false;
 
                             opponent_score++;
-                            /* Send POST Here */
+                            // Send POST request
                             char msg[100];
                             snprintf(msg, sizeof(msg), "{ \"username\": \"%s\", \"my_score\": %d, \"opponent_score\": %d }", username, my_score, opponent_score);
                             char jsonmsg[100];
@@ -1198,6 +1187,7 @@ void main(){
                 }
             }
 
+            // Display end screen
             if (my_score >= 5 || opponent_score >= 5) {
                 data = 0;
                 prev_data = 0;
@@ -1249,10 +1239,10 @@ void main(){
 
                 while (!MAP_UARTCharsAvail(UART1));
                 ack = MAP_UARTCharGetNonBlocking(UART1);
-                if (ack == 'r') {
+                if (ack == 'r' && game_running) {
                     game_running = true;
 
-                    /* Send POST Here */
+                    // Send POST request
                     char msg[100];
                     snprintf(msg, sizeof(msg), "{ \"username\": \"%s\" }", username);
                     char jsonmsg[100];

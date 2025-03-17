@@ -11,7 +11,7 @@
 
     <script>
         function fetchData() {
-            fetch('https://b219-168-150-44-88.ngrok-free.ap')  // CHANGE
+            fetch('https://b219-168-150-44-88.ngrok-free.ap')
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('data-display').innerText = data.message;
